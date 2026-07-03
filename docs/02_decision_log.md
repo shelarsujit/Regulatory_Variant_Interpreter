@@ -127,3 +127,33 @@ Format per entry: **Context → Decision → Why → Rejected alternatives → S
   are first-class fields).
 - **Rejected.** Letting each module invent its own return shape.
 - **Status.** Locked; implemented.
+
+## D10 — Motif engine: offline-first, PWM math in-house
+- **Context.** The mechanism layer needs JASPAR PWMs, but pyjaspar downloads a DB at
+  runtime and the build sandbox blocks most egress — and we want the module testable now.
+- **Decision.** Implement the PWM scoring math in `src/motifs.py` with **numpy only**, ship
+  a small set of **illustrative consensus motifs** (AP-1, CRE, GC-box, TATA, E-box, CCAAT)
+  for offline use, and provide `load_jaspar_pfms()` / a pyjaspar path to swap in the real
+  database for production. Only motif windows that **overlap the variant** are compared
+  between alleles, so a strong site elsewhere can't mask or fake the local effect.
+- **Why.** Runs and is unit-tested today; production simply swaps the motif library.
+- **Rejected.** Hard-depending on pyjaspar (network + heavy); scanning whole windows
+  without the overlap constraint (would leak non-local sites into the Δ).
+- **Status.** Implemented + tested (`tests/test_core.py`: gain and loss both detected).
+
+## D11 — Trust calibration: isotonic (PAVA) on a continuous-derived label; log-odds aggregation
+- **Context.** Need honest confidence from ~17k variants that are only ~1% "significant."
+- **Decision.** `src/trust.Calibrator` fits a **self-contained isotonic regression
+  (pool-adjacent-violators, numpy only)** mapping |predicted Δ| -> P(real effect), where the
+  label is the **continuous** `|measured_skew| >= tau` (D6), not the sparse significance
+  flag (kept only as a secondary AUC check). `build_trust_report` then combines calibrated
+  model confidence with evidence **in log-odds space** — concordant sources add, conflicts
+  subtract — and **always lists conflicts explicitly**.
+- **Why.** Continuous label uses all rows and is stable under class imbalance; log-odds
+  aggregation is monotone, bounded, and keeps conflict visible instead of averaging it away.
+  No heavy dependency, so it ships in the demo and is easy to test.
+- **Rejected.** sklearn IsotonicRegression (unnecessary dependency for ~15 lines of PAVA);
+  calibrating on the 164 emVars alone; averaging evidence into one opaque score.
+- **Status.** Implemented + tested (monotone; AUC≈0.87 on the simulated fixture; agreement
+  beats conflict and conflict is surfaced). `interpret_variant` is now wired to run motifs +
+  organoid-agreement + calibrated trust live, given sequences and a model Δ.
