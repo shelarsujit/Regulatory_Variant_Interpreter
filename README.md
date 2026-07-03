@@ -29,7 +29,9 @@ Early build (Life Sciences hackathon). **Day 1 = data foundation.**
 | Data prep → training set + held-out variant calibration set | ✅ implemented (`data/prepare_data.py`) |
 | Leakage-safe locus split | ✅ implemented (`data/splits.py`) |
 | `interpret_variant()` contract | ✅ defined (`src/schema.py`) |
-| HyenaDNA fine-tune, saturation mutagenesis, motifs, trust layer, demo | 🚧 stubs |
+| Motif gain/loss (`src/motifs.py`) + trust calibration (`src/trust.py`) | ✅ implemented + tested |
+| `interpret_variant` orchestration | ✅ wired (needs the predictor + genome window) |
+| HyenaDNA fine-tune, saturation mutagenesis, evidence sources, demo | 🚧 stubs |
 
 ## The data
 Deng et al. 2024, *Science* (`adh0559`) — a lentiMPRA in the developing human cortex

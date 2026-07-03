@@ -84,11 +84,12 @@ data/splits.py         # leakage-safe, locus-grouped splitting                  
 src/schema.py          # the Interpretation contract (dataclasses)                          [IMPLEMENTED]
 src/predictor.py       # load checkpoint + saturation-mutagenesis scorer                    [stub]
 src/evidence.py        # frozen foundation model, GTEx, ClinVar, TSS, held-out MPRA         [stub]
-src/motifs.py          # JASPAR PWM gain/loss                                               [stub]
-src/trust.py           # agreement -> calibrated confidence + evidence chain                [stub]
-src/interpret.py       # interpret_variant() orchestrator                                   [stub]
+src/motifs.py          # JASPAR PWM gain/loss (offline-capable + loader)                    [IMPLEMENTED]
+src/trust.py           # isotonic calibrator + agreement/conflict aggregation               [IMPLEMENTED]
+src/interpret.py       # interpret_variant() orchestrator                                   [wired; needs predictor + genome]
 train/finetune_hyenadna.py  # the A100 fine-tune                                            [stub]
 app/app.py             # Gradio demo -> HF Space                                            [stub]
+tests/test_core.py     # leakage split, motif gain/loss, calibration+conflict, end-to-end   [IMPLEMENTED]
 docs/                  # plain-English theory + data provenance + decision log
 notebooks/             # calibration validation, scratch
 ```
