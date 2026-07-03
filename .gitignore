@@ -216,3 +216,21 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Regulatory Variant Interpreter: data & model weights (never commit) ---
+# NOTE: we keep the .py scripts under data/ tracked, but never the payloads.
+data/raw/
+data/processed/
+data/**/*.parquet
+data/**/*.csv
+data/**/*.tsv
+data/**/*.xlsx
+# Model checkpoints / weights
+weights/
+checkpoints/
+*.pt
+*.ckpt
+*.safetensors
+*.h5
+# HuggingFace / torch caches sometimes land locally
+.hf_cache/
