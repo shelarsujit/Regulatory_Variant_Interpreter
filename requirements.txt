@@ -1,0 +1,33 @@
+# ---------------------------------------------------------------------------
+# Regulatory Variant Interpreter — Python dependencies
+# Grouped by phase so a Day-1 clone only needs the top block to run
+# data/prepare_data.py.
+# ---------------------------------------------------------------------------
+
+# --- Phase 1: data preparation (needed to run data/prepare_data.py) ---
+pandas>=2.0
+numpy>=1.24
+pyarrow>=14.0        # Parquet read/write
+openpyxl>=3.1        # read the Science supplement .xlsx "Data S" tables
+
+# --- Phase 2: model fine-tuning + inference (HyenaDNA on an A100) ---
+torch>=2.1
+transformers>=4.38   # loads HyenaDNA checkpoints via trust_remote_code
+einops>=0.7          # required by the HyenaDNA modelling code
+
+# --- Phase 2/3: genomics utilities ---
+pyfaidx>=0.7         # pull reference windows from an hg38 FASTA
+pysam>=0.22          # (optional) VCF/BAM handling
+pyjaspar>=3.0        # JASPAR transcription-factor motif (PWM) database
+biopython>=1.81
+
+# --- Phase 3: grounding + calibration (the trust layer) ---
+scikit-learn>=1.3    # isotonic / Platt calibration of confidence
+scipy>=1.11
+
+# --- Phase 4: demo ---
+gradio>=4.0
+
+# The frozen foundation model used as an independent evidence source
+# (enformer-pytorch OR the AlphaGenome API client) is pinned in Phase 3 —
+# see docs/02_decision_log.md.
