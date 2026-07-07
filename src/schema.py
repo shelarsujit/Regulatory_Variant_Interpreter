@@ -105,6 +105,7 @@ class Interpretation:
     # --- model prediction (the only part from our fine-tuned model) ---
     model_delta_primary: float = 0.0            # predicted ALT - REF activity, primary cortex
     model_delta_organoid: Optional[float] = None  # independent second-context model
+    model_delta_primary_std: Optional[float] = None  # ensemble disagreement on Δ (D17), if any
     predicted_direction: Direction = Direction.NONE
 
     # --- mechanism ---
