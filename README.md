@@ -67,5 +67,25 @@ See [`CLAUDE.md`](CLAUDE.md) for the full charter and
 choice.
 
 ## License
-Code: see [`LICENSE`](LICENSE). The Deng et al. MPRA data is CC-BY-NC and is **not**
-redistributed here — `prepare_data.py` consumes files you download yourself.
+Code in this repository: **Apache License 2.0** — see [`LICENSE`](LICENSE).
+
+Third-party assets are used under their own licenses and are **not** redistributed here:
+
+| Asset | Use | License |
+|---|---|---|
+| **Deng et al. 2024** lentiMPRA supplement (`adh0559`) | training + calibration data | **CC-BY-NC** — downloaded by you; `prepare_data.py` consumes local files |
+| **HyenaDNA** (`LongSafari/hyenadna-tiny-1k-seqlen` / `-hf`) | fine-tune backbone | **BSD-3-Clause** |
+| **Enformer** (`EleutherAI/enformer-official-rough`) | frozen independent evidence | **CC-BY-4.0** |
+
+All three are attribution-only (no copyleft); the CC-BY-NC data keeps this a
+non-commercial research project.
+
+## Acknowledgements & citations
+- **Deng, C., Whalen, S., Steyert, M., … Ahituv, N., Pollard, K. S.** (2024). *Massively
+  parallel characterization of regulatory elements in the developing human cortex.*
+  **Science** 384(6698):eadh0559. https://doi.org/10.1126/science.adh0559
+- **Nguyen, E., Poli, M., … Ré, C., Baccus, S.** (2023). *HyenaDNA: Long-Range Genomic
+  Sequence Modeling at Single Nucleotide Resolution.* arXiv:2306.15794.
+- **Avsec, Ž., Agarwal, V., … Kelley, D. R.** (2021). *Effective gene expression
+  prediction from sequence by integrating long-range interactions* (Enformer). **Nature
+  Methods** 18:1196–1203. PyTorch port: EleutherAI / `enformer-pytorch`.

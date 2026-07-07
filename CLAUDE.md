@@ -6,6 +6,8 @@
 > - [`docs/00_overview_for_non_biologists.md`](docs/00_overview_for_non_biologists.md) — what this whole thing *is*, from first principles.
 > - [`docs/01_data_provenance.md`](docs/01_data_provenance.md) — where the data comes from and exactly what it looks like.
 > - [`docs/02_decision_log.md`](docs/02_decision_log.md) — every engineering decision and *why* (the "theory of everything we do").
+> - [`docs/03_results.md`](docs/03_results.md) — first real fine-tune + calibration results (primary r≈0.70; variant-effect AUC≈0.62; 163≈164 emVar validation).
+> - [`docs/04_prior_art.md`](docs/04_prior_art.md) — how this sits against existing tools, and the "why not just AlphaGenome?" answer.
 
 ## 1. What this is
 A **trust-first interpreter for non-coding, regulatory DNA variants** — the frontier
@@ -34,7 +36,8 @@ any genomic-medicine / variant-curation group.
 - **Backbone:** HyenaDNA — single-nucleotide resolution (essential for single-base
   saturation mutagenesis), sub-quadratic, fine-tunable on one A100 in a week.
   Checkpoint: `LongSafari/hyenadna-tiny-1k-seqlen` (1 kb context ≫ ~200 bp elements).
-  **Upgrade path:** Caduceus (reverse-complement equivariant) if we converge early.
+  **Upgrade path (scaffolded, D16):** Caduceus (RC-equivariant, bidirectional) is a one-flag
+  swap — `--backbone caduceus`. HyenaDNA is CPU-testable; Caduceus is **GPU-only** (mamba-ssm).
 - **NOT the plan:** fine-tuning Enformer/AlphaGenome. We use one of them **frozen,
   zero-shot** as an *independent* evidence source in the trust layer.
 - **Data source of truth:** the **processed** Deng et al. 2024 *Science* supplement
@@ -79,16 +82,20 @@ make that number *trustable*.
 
 ## 6. Repo map
 ```
-data/prepare_data.py   # supplement tables -> train/val + held-out variant calibration set  [IMPLEMENTED]
+data/prepare_data.py   # supplement tables -> train/val + held-out variant calibration set  [IMPLEMENTED; +--deng-dir real path]
 data/splits.py         # leakage-safe, locus-grouped splitting                              [IMPLEMENTED]
+data/load_deng.py      # real Deng ingest: sheet-join + hg38 seq + dbSNP alleles (D14)      [IMPLEMENTED; needs hg38 FASTA]
+data/genome.py         # pyfaidx hg38 window reader (reusable by interpret.py)              [IMPLEMENTED]
+data/dbsnp.py          # rsID -> ref/alt via Ensembl REST, disk-cached                      [IMPLEMENTED]
 src/schema.py          # the Interpretation contract (dataclasses)                          [IMPLEMENTED]
-src/predictor.py       # load checkpoint + saturation-mutagenesis scorer                    [stub]
-src/evidence.py        # frozen foundation model, GTEx, ClinVar, TSS, held-out MPRA         [stub]
+src/predictor.py       # load checkpoint + saturation-mutagenesis scorer                    [IMPLEMENTED; head untrained until Phase 2]
+src/evidence.py        # frozen foundation model, GTEx, ClinVar, TSS, held-out MPRA         [IMPLEMENTED; held-out MPRA live, external sources injectable]
 src/motifs.py          # JASPAR PWM gain/loss (offline-capable + loader)                    [IMPLEMENTED]
 src/trust.py           # isotonic calibrator + agreement/conflict aggregation               [IMPLEMENTED]
-src/interpret.py       # interpret_variant() orchestrator                                   [wired; needs predictor + genome]
-train/finetune_hyenadna.py  # the A100 fine-tune                                            [stub]
-app/app.py             # Gradio demo -> HF Space                                            [stub]
+src/interpret.py       # interpret_variant() orchestrator                                   [IMPLEMENTED; genome-window wired]
+train/finetune_hyenadna.py  # the A100 fine-tune                                            [IMPLEMENTED; run on Colab A100]
+app/app.py             # Gradio demo -> HF Space                                            [IMPLEMENTED; coords + paste-seq modes]
+eval/calibrate.py      # score held-out variants -> Pearson/AUC + fit & save calibrator      [IMPLEMENTED; run after fine-tune]
 tests/test_core.py     # leakage split, motif gain/loss, calibration+conflict, end-to-end   [IMPLEMENTED]
 docs/                  # plain-English theory + data provenance + decision log
 notebooks/             # calibration validation, scratch
