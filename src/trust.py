@@ -111,6 +111,30 @@ class Calibrator:
             raise RuntimeError("Calibrator is not fitted")
         return float(np.interp(abs(predicted_delta), self._xp, self._fp))
 
+    # ------------------------------------------------------------------ persistence
+    def to_dict(self) -> dict:
+        """Serialize the fitted isotonic map + diagnostics (JSON-safe)."""
+        if not self.is_fitted:
+            raise RuntimeError("Calibrator is not fitted")
+        return {"xp": self._xp.tolist(), "fp": self._fp.tolist(), "diagnostics": self.diagnostics}
+
+    def save(self, path: str) -> str:
+        import json
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        return path
+
+    @classmethod
+    def load(cls, path: str) -> "Calibrator":
+        import json
+        with open(path) as f:
+            d = json.load(f)
+        cal = cls()
+        cal._xp = np.asarray(d["xp"], dtype=float)
+        cal._fp = np.asarray(d["fp"], dtype=float)
+        cal.diagnostics = d.get("diagnostics", {})
+        return cal
+
 
 # --------------------------------------------------------------------------- aggregation
 def _sigmoid(x: float) -> float:
@@ -130,12 +154,18 @@ def _fallback_confidence(model_delta: float, scale: float = 0.4) -> float:
 def build_trust_report(model_delta: float, evidence: list[EvidenceItem], *,
                        calibrator: Calibrator | None = None,
                        evidence_weight: float = 0.6,
+                       model_uncertainty: float | None = None,
+                       uncertainty_weight: float = 2.0,
                        hi: float = 0.66, lo: float = 0.34) -> TrustReport:
     """Combine calibrated model confidence with independent evidence into a verdict.
 
     Confidence is aggregated in log-odds space: each concordant source adds
     `evidence_weight * item.weight`, each conflict subtracts it. Conflicts are surfaced
     explicitly. Call bands: >= `hi` -> altering, <= `lo` -> benign, else uncertain.
+
+    `model_uncertainty` (e.g. an ensemble's std of Δ, decision D17) shrinks the MODEL's own
+    log-odds toward 0 (confidence toward 0.5): a variant the ensemble disagrees on is trusted
+    less. Evidence is independent of the model, so it is NOT shrunk.
     """
     base = calibrator.transform(model_delta) if (calibrator and calibrator.is_fitted) \
         else _fallback_confidence(model_delta)
@@ -143,7 +173,10 @@ def build_trust_report(model_delta: float, evidence: list[EvidenceItem], *,
     agreements = [e for e in evidence if e.concordant is True]
     conflicts = [e for e in evidence if e.concordant is False]
 
-    z = _logit(base)
+    z_model = _logit(base)
+    if model_uncertainty is not None:
+        z_model /= (1.0 + uncertainty_weight * max(0.0, model_uncertainty))
+    z = z_model
     z += evidence_weight * sum(e.weight for e in agreements)
     z -= evidence_weight * sum(e.weight for e in conflicts)
     confidence = _sigmoid(z)
@@ -161,6 +194,8 @@ def build_trust_report(model_delta: float, evidence: list[EvidenceItem], *,
         f"{len(agreements)} concordant source(s), {len(conflicts)} conflict(s) "
         f"-> {confidence:.0%}."
     )
+    if model_uncertainty is not None and model_uncertainty > 0:
+        rationale += f" Model uncertainty (ensemble σ={model_uncertainty:.3f}) shrinks confidence toward 0.5."
     if conflicts:
         rationale += " Conflict(s) surfaced, not averaged away."
 

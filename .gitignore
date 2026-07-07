@@ -219,7 +219,11 @@ __marimo__/
 
 # --- Regulatory Variant Interpreter: data & model weights (never commit) ---
 # NOTE: we keep the .py scripts under data/ tracked, but never the payloads.
-data/raw/
+# Ignore EVERYTHING under data/raw/ (CC-BY-NC Deng data, PDFs, caches) except its README.
+# (Do NOT use `!data/raw/` to re-include the dir — it re-exposes all payloads, incl. non-
+#  xlsx files like the Science supplement PDF and dbsnp_cache.json.)
+data/raw/*
+!data/raw/README.md
 data/processed/
 data/**/*.parquet
 data/**/*.csv

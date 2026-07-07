@@ -255,8 +255,13 @@ def parse_col_overrides(pairs):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--synthetic", action="store_true", help="generate a fixture instead of reading real tables")
-    ap.add_argument("--element-table", help="path to the element-activity supplement table")
-    ap.add_argument("--variant-table", help="path to the variant allelic-skew supplement table")
+    ap.add_argument("--deng-dir", help="folder with the real Deng supplement (adh0559_data_s1.xlsx etc.); "
+                                       "uses data/load_deng.py (hg38 reconstruction + dbSNP alleles)")
+    ap.add_argument("--genome", help="path to a local hg38 FASTA (required with --deng-dir)")
+    ap.add_argument("--dbsnp-cache", help="path for the rsID->allele cache (default data/raw/dbsnp_cache.json)")
+    ap.add_argument("--emvar-fdr", type=float, default=0.10, help="adj.P.Val threshold flagged as an emVar")
+    ap.add_argument("--element-table", help="path to the element-activity supplement table (generic loader)")
+    ap.add_argument("--variant-table", help="path to the variant allelic-skew supplement table (generic loader)")
     ap.add_argument("--col", action="append", default=[], help="override a column mapping, e.g. --col activity_primary=Primary_log2")
     ap.add_argument("--out-dir", default=os.path.join(_HERE, "processed"))
     ap.add_argument("--seq-len", type=int, default=200, help="modeled element length (bp); verify against Methods")
@@ -275,6 +280,13 @@ def main(argv=None):
     if args.synthetic:
         elements, variants, load_meta = make_synthetic(
             args.n_elements, args.n_variants, args.seq_len, args.seed, args.n_leak_decoys)
+    elif args.deng_dir:
+        if not args.genome:
+            raise SystemExit("--deng-dir requires --genome <hg38.fa> (sequences are reconstructed "
+                             "from the reference; see docs/01_data_provenance.md §4).")
+        import load_deng  # lazy: pulls pyfaidx + network (Ensembl)
+        elements, variants, load_meta = load_deng.load_deng(
+            args.deng_dir, args.genome, emvar_fdr=args.emvar_fdr, cache_path=args.dbsnp_cache)
     else:
         elements, variants, load_meta = load_real(args.element_table, args.variant_table, override, args.seq_len)
 

@@ -12,12 +12,20 @@ openpyxl>=3.1        # read the Science supplement .xlsx "Data S" tables
 
 # --- Phase 2: model fine-tuning + inference (HyenaDNA on an A100) ---
 torch>=2.1
-transformers>=4.38   # loads HyenaDNA checkpoints via trust_remote_code
+transformers>=4.38   # loads HyenaDNA / Caduceus checkpoints via trust_remote_code
 einops>=0.7          # required by the HyenaDNA modelling code
+
+# --- Phase 2 (OPTIONAL): Caduceus backbone — the D2/D16 upgrade path, GPU-ONLY ---
+# These build CUDA kernels and do NOT install on CPU/Windows; add them only on the GPU box
+# (Colab A100 etc.). The HyenaDNA path needs none of them and stays CPU-testable.
+# mamba-ssm>=2.2       # Caduceus is Mamba-based
+# causal-conv1d>=1.4   # fast conv kernel mamba-ssm depends on
 
 # --- Phase 2/3: genomics utilities ---
 pyfaidx>=0.7         # pull reference windows from an hg38 FASTA
-pysam>=0.22          # (optional) VCF/BAM handling
+# pysam>=0.22        # (optional) VCF/BAM handling — DISABLED: no Windows wheels
+#                    # (wraps htslib, Unix-only). Use pyfaidx for FASTA on Windows.
+#                    # If VCF/BAM parsing is ever needed on Windows, run under WSL.
 pyjaspar>=3.0        # JASPAR transcription-factor motif (PWM) database
 biopython>=1.81
 
