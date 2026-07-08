@@ -14,8 +14,11 @@
 
 # ===================== CELL 2 — deps (incl. Mamba CUDA kernels) =====================
 # (bash) torch is preinstalled on Colab; mamba-ssm/causal-conv1d build against its CUDA.
+# transformers is PINNED: caduceus remote code predates the >=5.x tie-weights refactor
+# (`all_tied_weights_keys`). An unpinned install pulls 5.x and load fails. Do NOT unpin.
+# After this cell: Runtime -> Restart session (mamba/transformers load into RAM), then Cell 4.
 """
-!pip install -q transformers einops pandas pyarrow scipy openpyxl
+!pip install -q "transformers==4.44.2" einops pandas pyarrow scipy openpyxl
 !pip install -q causal-conv1d mamba-ssm --no-build-isolation
 """
 

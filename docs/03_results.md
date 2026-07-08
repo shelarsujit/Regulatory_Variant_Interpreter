@@ -62,8 +62,33 @@ classification AUC (+0.013 on the paper's significant set), but did **nothing** 
 variant-effect correlation (flat/slightly worse). This is the **data ceiling**: the model can fit
 element activity better, but the single-base variant signal is limited by the assay's noise, not
 by model capacity. Bigger HyenaDNA is a small, honest win on classification — not the lever that
-unlocks variant-effect. That lever is **architecture** (bidirectional Caduceus, §8), not size.
+unlocks variant-effect. That lever is **architecture** (bidirectional Caduceus, §2c), not size.
 Logged: `weights/results_s32.json`.
+
+## 2c. Backbone A/B — HyenaDNA (causal) vs Caduceus-ph (bidirectional) — the §8 #1 lever, run
+
+Swapped the backbone to **Caduceus-ph** (`caduceus-ph_seqlen-131k_d_model-256_n_layer-16`,
+d=256, 7.7M params, `--backbone caduceus`, D16) — Mamba-based, **bidirectional but NOT
+RC-equivariant** (the `-ph` post-hoc variant, deliberately not `-ps`; see §6 for why RC-invariance
+is *wrong* for an orientation-specific MPRA). GPU-only (mamba-ssm CUDA kernels); trained on an
+A100, batch 64, AMP. Compared against the best HyenaDNA config (small-32k, §2b):
+
+| Metric | HyenaDNA small-32k | **Caduceus-ph** | Δ |
+|---|---|---|---|
+| variant Pearson (Δ vs skew) | 0.1445 | **0.1917** | **+0.047 (+33% rel)** |
+| variant Spearman | 0.091 | **0.1205** | **+0.030 (+33% rel)** |
+| emVar AUC (loose, 596 pos) | 0.596 | **0.6115** | +0.015 |
+| emVar AUC (strict, the 164) | 0.628 | 0.6303 | +0.002 (flat) |
+
+**Verdict: the first lever that moves continuous variant-effect.** Bidirectionality lifted the
+Δ-vs-skew **Pearson by a third** (0.145→0.192) — the best of *any* config tried this project, and
+directly confirms the §6 hypothesis: reading **both flanks on the same forward strand** recovers
+signal that a *causal* model (HyenaDNA, left-context-only) structurally cannot see for a
+mid-sequence variant. Crucially it did this **without** RC-averaging's harm (§6), vindicating the
+`-ph`-not-`-ps` choice. The **strict emVar AUC stayed flat (~0.63)** — the binary significance call
+still sits at the assay's data ceiling (§2b), so architecture buys *magnitude* fidelity, not the
+hard yes/no emVar decision. Calibration held (reliability diagonal on the bulk: mean_P 0.011 vs
+observed 0.010). Logged: `weights/results_cad.json`, `weights/calibrator_primary_cad.json`.
 
 ## 3. Pipeline validation — 163 ≈ 164
 
@@ -91,7 +116,8 @@ for true movers. Saved: `weights/calibrator_primary.json`.
 ## 5. Honest verdict
 
 - **Element predictor: strong** (r≈0.70).
-- **Variant-effect signal: modest but real** (r≈0.15, AUC≈0.62) — the genuinely hard task.
+- **Variant-effect signal: modest but real** (best r≈0.19 with Caduceus-ph, §2c; AUC≈0.63) — the
+  genuinely hard task; bidirectionality is the lever that moved the continuous correlation most.
 - **Data pipeline: validated** (163≈164 emVars).
 - **Calibration: honest** (reliability diagonal on the bulk).
 
@@ -141,9 +167,9 @@ probabilities stay honest against the significance definition. Logged: `weights/
 
 Ranked by leverage (raw accuracy is the tunable knob; the trust thesis already holds):
 
-1. **Caduceus backbone — bidirectional, NOT the RC-equivariant `-ps`** (see §6). HyenaDNA is
-   *causal*, so a mid-sequence variant suffers left-context bias; a bidirectional model sees both
-   flanks. Highest-leverage. Plumbing ready (`--backbone caduceus`, D16); GPU-only.
+1. **Caduceus backbone — bidirectional, NOT the RC-equivariant `-ps`** (see §6). **DONE (§2c):**
+   ran on A100, **best variant-effect Pearson of the project** (0.192, +33% rel vs HyenaDNA); strict
+   emVar AUC flat. Confirmed the causal→bidirectional lever moves *magnitude*, not the binary call.
 2. **Deep ensemble** (N seeds) — plumbing **implemented + tested** (D18): `--n-seeds N` trains
    members, `EnsemblePredictor` gives mean Δ + per-variant σ that shrinks trust confidence. Awaits
    a real multi-seed training run to quantify the accuracy bump.
@@ -151,7 +177,7 @@ Ranked by leverage (raw accuracy is the tunable knob; the trust thesis already h
 
 *Tried and rejected this session: reverse-complement averaging (§6), lower calibration τ (§7).*
 
-## 7. Reproduce
+## 9. Reproduce
 
 ```
 # data (needs hg38 FASTA + myvariant.info):
@@ -161,6 +187,11 @@ python train/finetune_hyenadna.py --context primary  --data data/processed --out
 python train/finetune_hyenadna.py --context organoid --data data/processed --out weights/organoid --amp
 # eval + calibrator:
 python eval/calibrate.py --weights weights/primary --s2 data/raw/.../DataS2-Variant-library-ratios.xlsx
+
+# best variant-effect result — Caduceus-ph (§2c), GPU-only (mamba-ssm); see notebooks/run_caduceus_colab.py:
+python train/finetune_hyenadna.py --context primary  --backbone caduceus --data data/processed --out weights/primary_cad  --amp --batch-size 64
+python train/finetune_hyenadna.py --context organoid --backbone caduceus --data data/processed --out weights/organoid_cad --amp --batch-size 64
+python eval/calibrate.py --weights weights/primary_cad --s2 data/raw/.../DataS2-Variant-library-ratios.xlsx --results-out weights/results_cad.json
 ```
 Exact per-run provenance: `weights/<ctx>/provenance.json`, `data/processed/manifest.json`,
 `weights/calibrator_primary.json`.
