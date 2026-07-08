@@ -231,9 +231,13 @@ def train(args):
             scaler.scale(loss).backward()
             scaler.unscale_(opt)
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
+            scale_before = scaler.get_scale()
             scaler.step(opt)
             scaler.update()
-            sched.step()
+            # only advance the LR schedule when the optimizer actually stepped — AMP skips the
+            # first step(s) while calibrating the loss scale, which otherwise warns.
+            if scaler.get_scale() >= scale_before:
+                sched.step()
             running += loss.item() * len(y)
             seen += len(y)
         metrics = _evaluate(model, va_seqs, va_y, args.batch_size, tok, device)

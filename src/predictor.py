@@ -115,16 +115,17 @@ class CaduceusCharTokenizer(HyenaDNACharTokenizer):
 # and persist raw state_dicts (not save_pretrained), so no per-backbone serialization quirks leak.
 # NOTE (Caduceus): needs `mamba-ssm` + `causal-conv1d`, which require CUDA to build — it loads and
 # trains on a GPU box only, NOT on CPU/Windows. The HyenaDNA path stays fully CPU-testable.
-# The `-ps` default below is the RC-EQUIVARIANT variant. CAVEAT (docs/03_results.md §6): test-time
-# RC averaging HURT variant-effect on this MPRA (activity is orientation-specific), which argues
-# against forcing `f(seq)=f(rc(seq))` — consider a bidirectional non-RC-equivariant / `-ph` variant
-# instead, and test both on GPU. Also verify mean-pool + Linear head behaves for `-ps` (its hidden
-# channels are RC-structured), or use CaduceusForSequenceClassification's pooling.
+# We default to the **`-ph` (post-hoc) variant**: bidirectional but NOT reverse-complement
+# equivariant. This is deliberate (docs/03_results.md §6, D16): test-time RC averaging HURT
+# variant-effect on this MPRA because activity is orientation-specific, so forcing `f(seq)=f(rc(seq))`
+# — as the `-ps` (parameter-sharing, RC-equivariant) variant does — is mismatched to the task. `-ph`
+# also has standard d_model channels, so the mean-pool + Linear head works directly (no RCPS pooling).
+# d_model=256, 16 layers, 7.7M params. To try `-ps` anyway, pass --checkpoint explicitly.
 BACKBONES = {
     "hyenadna": {"default_checkpoint": DEFAULT_CHECKPOINT,
                  "tokenizer": HyenaDNACharTokenizer},
     "caduceus": {"default_checkpoint":
-                 "kuleshov-group/caduceus-ps_seqlen-131k_d_model-256_n_layer-16",
+                 "kuleshov-group/caduceus-ph_seqlen-131k_d_model-256_n_layer-16",
                  "tokenizer": CaduceusCharTokenizer},
 }
 
