@@ -90,6 +90,36 @@ still sits at the assay's data ceiling (§2b), so architecture buys *magnitude* 
 hard yes/no emVar decision. Calibration held (reliability diagonal on the bulk: mean_P 0.011 vs
 observed 0.010). Logged: `weights/results_cad.json`, `weights/calibrator_primary_cad.json`.
 
+## 2d. Direct-skew SIAMESE objective — the biggest variant-effect lever (Enhancement #1)
+
+The §2a–2c models all regress single-sequence *activity*, then `score_variant` **subtracts**
+alt−ref to get Δ — an *indirect* proxy never optimized on the difference. Enhancement #1
+(`docs/07`) trains the difference **directly**: a shared-weight (siamese) Caduceus-ph backbone
+encodes ref and alt, a small head reads `h_alt − h_ref` and regresses the measured skew (logFC).
+Warm-started from the §2c activity backbone (`--init-from weights/primary_cad`, exact key match),
+10,659 locus-disjoint train pairs (`data/make_variant_pairs.py`, leakage PASS), 8 epochs A100.
+
+Graded on a **fresh** locus-disjoint slice `eval_variants_siamese.parquet` (2,273 variants, never
+trained on), with the activity baseline **re-scored on the identical slice** so any win is the
+objective, not a different test set (`eval/eval_siamese.py`):
+
+| model (same 2,273-variant slice) | Pearson | Spearman | emVar AUC (loose, 104) | emVar AUC (strict, 30) |
+|---|---|---|---|---|
+| activity — subtract endpoints (Caduceus) | 0.1913 | 0.1225 | 0.6057 | 0.5351 |
+| **siamese — direct skew (Caduceus)** | **0.2801** | 0.1158 | **0.6709** | 0.5500 |
+| Δ | **+0.089 (+47% rel)** | tie | **+0.065** | +0.015 (noise) |
+
+**Verdict: the objective is the single biggest variant-effect lever found.** Optimizing the
+difference directly lifts continuous Δ-Pearson **0.191 → 0.280 (+47% rel)** and loose emVar AUC
+**0.606 → 0.671** on the identical held-out slice — larger than the causal→bidirectional jump
+(§2c). This confirms the §07 thesis that the indirect subtract-endpoints Δ was the main cause of
+the 0.70→0.15 element-vs-variant gap. **Honest caveat:** the strict emVar AUC gain (+0.015) is
+within noise (only 30 strict positives on this slice); the robust claim is the **continuous** win
+(dense, 2,273 pts). The binary emVar *significance* call still sits at the assay's data ceiling
+(§2b) — no single-base method escapes it here. Bidirectionality is a **precondition**: the same
+objective on a *causal* HyenaDNA backbone lost to its baseline (`docs/07`, the difference embedding
+needs both flanks). Logged: `weights/results_siamese_cad.json`, `weights/siamese_cad/`.
+
 ## 3. Pipeline validation — 163 ≈ 164
 
 The strict, active-gated emVar count from our reconstructed data was **163**, essentially the
@@ -116,8 +146,10 @@ for true movers. Saved: `weights/calibrator_primary.json`.
 ## 5. Honest verdict
 
 - **Element predictor: strong** (r≈0.70).
-- **Variant-effect signal: modest but real** (best r≈0.19 with Caduceus-ph, §2c; AUC≈0.63) — the
-  genuinely hard task; bidirectionality is the lever that moved the continuous correlation most.
+- **Variant-effect signal: modest but real** (best **r≈0.28** with the direct-skew siamese
+  objective on Caduceus-ph, §2d; loose emVar AUC≈0.67) — the genuinely hard task. Two levers
+  compounded: bidirectional backbone (§2c) then the direct-difference objective (§2d, the bigger
+  one). The *binary* emVar significance call stays at the assay's data ceiling regardless.
 - **Data pipeline: validated** (163≈164 emVars).
 - **Calibration: honest** (reliability diagonal on the bulk).
 
@@ -167,9 +199,15 @@ probabilities stay honest against the significance definition. Logged: `weights/
 
 Ranked by leverage (raw accuracy is the tunable knob; the trust thesis already holds):
 
+0. **Direct-skew siamese objective** (Enhancement #1, `docs/07`). **DONE (§2d) — the biggest lever:**
+   train the difference directly instead of subtracting activity endpoints. On Caduceus-ph, warm-
+   started from the activity backbone: Δ-Pearson **0.191→0.280 (+47% rel)**, loose emVar AUC
+   **0.606→0.671**, apples-to-apples on the same held-out slice. Requires a bidirectional backbone
+   (same objective on causal HyenaDNA lost — the difference embedding needs both flanks).
 1. **Caduceus backbone — bidirectional, NOT the RC-equivariant `-ps`** (see §6). **DONE (§2c):**
-   ran on A100, **best variant-effect Pearson of the project** (0.192, +33% rel vs HyenaDNA); strict
-   emVar AUC flat. Confirmed the causal→bidirectional lever moves *magnitude*, not the binary call.
+   ran on A100, +33% rel variant-effect Pearson vs HyenaDNA (0.145→0.192); strict emVar AUC flat.
+   Confirmed the causal→bidirectional lever moves *magnitude*, not the binary call — and is the
+   precondition that unlocked lever #0.
 2. **Deep ensemble** (N seeds) — plumbing **implemented + tested** (D18): `--n-seeds N` trains
    members, `EnsemblePredictor` gives mean Δ + per-variant σ that shrinks trust confidence. Awaits
    a real multi-seed training run to quantify the accuracy bump.
@@ -192,6 +230,11 @@ python eval/calibrate.py --weights weights/primary --s2 data/raw/.../DataS2-Vari
 python train/finetune_hyenadna.py --context primary  --backbone caduceus --data data/processed --out weights/primary_cad  --amp --batch-size 64
 python train/finetune_hyenadna.py --context organoid --backbone caduceus --data data/processed --out weights/organoid_cad --amp --batch-size 64
 python eval/calibrate.py --weights weights/primary_cad --s2 data/raw/.../DataS2-Variant-library-ratios.xlsx --results-out weights/results_cad.json
+
+# BEST variant-effect — direct-skew siamese objective (§2d, Enhancement #1), GPU-only:
+python data/make_variant_pairs.py                                    # leakage-safe locus-disjoint pairs
+python train/finetune_siamese.py --backbone caduceus --init-from weights/primary_cad --out weights/siamese_cad --amp --batch-size 64
+python eval/eval_siamese.py --siamese-weights weights/siamese_cad --activity-weights weights/primary_cad --s2 data/raw/.../DataS2-Variant-library-ratios.xlsx
 ```
 Exact per-run provenance: `weights/<ctx>/provenance.json`, `data/processed/manifest.json`,
 `weights/calibrator_primary.json`.

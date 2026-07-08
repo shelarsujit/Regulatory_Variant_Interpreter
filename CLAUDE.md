@@ -6,7 +6,7 @@
 > - [`docs/00_overview_for_non_biologists.md`](docs/00_overview_for_non_biologists.md) — what this whole thing *is*, from first principles.
 > - [`docs/01_data_provenance.md`](docs/01_data_provenance.md) — where the data comes from and exactly what it looks like.
 > - [`docs/02_decision_log.md`](docs/02_decision_log.md) — every engineering decision and *why* (the "theory of everything we do").
-> - [`docs/03_results.md`](docs/03_results.md) — first real fine-tune + calibration results (primary r≈0.70; variant-effect AUC≈0.62; 163≈164 emVar validation).
+> - [`docs/03_results.md`](docs/03_results.md) — fine-tune + calibration results (element r≈0.72; best variant-effect Δ-Pearson≈0.28 via the direct-skew siamese objective on Caduceus-ph, §2d; 163≈164 emVar validation).
 > - [`docs/04_prior_art.md`](docs/04_prior_art.md) — how this sits against existing tools, and the "why not just AlphaGenome?" answer.
 
 ## 1. What this is
