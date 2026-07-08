@@ -324,8 +324,17 @@ Format per entry: **Context → Decision → Why → Rejected alternatives → S
   pulling `mamba-ssm` into base requirements (breaks every CPU/Windows install).
 - **Status.** Implemented; HyenaDNA verified byte-identical (auto-detects `backbone_type=hyenadna`,
   same tokenizer, load/predict/ISM/finetune all unchanged; 6/6 tests pass). Caduceus plumbing in
-  place; actual Caduceus load/train awaits a CUDA GPU (Colab) — first run must confirm the `-ps`
-  pooling and transformers×remote-code compatibility.
+  place; actual Caduceus load/train awaits a CUDA GPU (Colab) — first run must confirm the pooling
+  and transformers×remote-code compatibility.
+- **Addendum (variant chosen: `-ph`, not `-ps`).** The RC-averaging negative result (docs/03 §6)
+  showed MPRA activity is orientation-specific, so an RC-*equivariant* backbone is mismatched.
+  The `BACKBONES` default is now **`kuleshov-group/caduceus-ph_seqlen-131k_d_model-256_n_layer-16`**
+  — the **post-hoc (ph)** variant. Confirmed from its HF config via the Hugging Face Claude Science
+  tool: **`rcps: false`, `bidirectional: true`**, `model_type: caduceus`, `d_model: 256`, 16 layers,
+  7.7M params, `vocab_size: 16` (matches our char vocab), `auto_map.AutoModel → modeling_caduceus.Caduceus`.
+  Because `rcps: false`, its hidden channels are standard `d_model` — the mean-pool + `Linear` head
+  works directly, resolving the earlier RCPS-pooling caveat. Apache-2.0 (clean license). GPU-only
+  (`mamba-ssm`); run `--backbone caduceus` on Colab.
 
 ## D17 — Motif database: keep JASPAR as primary, offer HOCOMOCO v11 as a concordance overlay
 - **Context.** Confirmed from the Deng *Science* full text (PMC12085231, read 2026-07-07): the

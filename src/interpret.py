@@ -57,6 +57,7 @@ def interpret_variant(chrom: str, pos: int, ref: str, alt: str, build: str = "hg
                       predictor=None, organoid_predictor=None,
                       model_delta: float | None = None, model_delta_organoid: float | None = None,
                       evidence: list[EvidenceItem] | None = None,
+                      evidence_resources: dict | None = None,
                       calibrator=None, genome=None, motif_library=None,
                       window_len: int | None = None,
                       provenance: dict | None = None) -> Interpretation:
@@ -100,7 +101,8 @@ def interpret_variant(chrom: str, pos: int, ref: str, alt: str, build: str = "hg
     # --- 4. grounding evidence ----------------------------------------------------------
     if evidence is None:
         try:
-            evidence = evidence_mod.gather_evidence(chrom, pos, ref, alt, direction, build=build)
+            evidence = evidence_mod.gather_evidence(chrom, pos, ref, alt, direction, build=build,
+                                                    **(evidence_resources or {}))
         except NotImplementedError:
             evidence = []
     evidence = list(evidence)

@@ -131,19 +131,36 @@ def from_gtex_eqtl(chrom, pos, ref, alt, model_direction, build="hg38", gtex_tab
     row = _match_variant(df, chrom, pos, ref, alt)
     if row is None:
         return None
-    eff_col = next((c for c in ("slope", "nes", "effect", "beta") if c in row), None)
-    if eff_col is None:
-        return None
-    slope = float(row[eff_col])
-    src_dir = _direction_of(slope)
     gene = row.get("gene") if hasattr(row, "get") else None
+
+    # (a) signed eQTL effect (slope/nes) -> a directional signal
+    eff_col = next((c for c in ("slope", "nes", "effect", "beta") if c in row), None)
+    if eff_col is not None and row[eff_col] == row[eff_col]:      # present & not NaN
+        slope = float(row[eff_col])
+        src_dir = _direction_of(slope)
+        return EvidenceItem(
+            source="GTEx_eQTL",
+            summary=f"GTEx eQTL {eff_col}={slope:+.3f}" + (f" on {gene}" if gene else ""),
+            value=round(slope, 4), direction=src_dir,
+            concordant=_concordant(src_dir, model_direction),
+            weight=_WEIGHTS["GTEx_eQTL"], detail={"gene": gene, "effect_col": eff_col})
+
+    # (b) boolean eQTL membership (e.g. Deng's `eqtl_gtex_brain`): directionless but NOT neutral.
+    # The variant is a real population expression-QTL, so it CORROBORATES a predicted regulatory
+    # effect and CONFLICTS with a predicted-benign call — a genuine independent trust signal.
+    is_eqtl = bool(row.get("is_eqtl", True)) if hasattr(row, "get") else True
+    if not is_eqtl:
+        return None
+    on = f" on {gene}" if gene else ""
+    if model_direction is Direction.NONE:
+        concordant, note = False, "but the model predicts no effect"
+    else:
+        concordant, note = True, "corroborates a regulatory effect"
     return EvidenceItem(
         source="GTEx_eQTL",
-        summary=f"GTEx eQTL {eff_col}={slope:+.3f}" + (f" on {gene}" if gene else ""),
-        value=round(slope, 4), direction=src_dir,
-        concordant=_concordant(src_dir, model_direction),
-        weight=_WEIGHTS["GTEx_eQTL"], detail={"gene": gene, "effect_col": eff_col},
-    )
+        summary=f"known GTEx brain eQTL{on} (population expression association) — {note}",
+        value="eQTL", direction=None, concordant=concordant,
+        weight=_WEIGHTS["GTEx_eQTL"], detail={"gene": gene, "is_eqtl": True})
 
 
 def from_clinvar(chrom, pos, ref, alt, build="hg38", clinvar_table=None):

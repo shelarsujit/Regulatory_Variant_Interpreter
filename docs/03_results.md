@@ -43,6 +43,28 @@ easier than predicting the effect of flipping **one base**. Tiny, noisy single-b
 the open hard problem of the field; r≈0.15 / AUC≈0.61 sits at the low end of the realistic range
 (literature ~0.1–0.35 / 0.6–0.75) for a small model.
 
+## 2b. Backbone A/B — tiny-1k vs small-32k (bigger HyenaDNA)
+
+Swapped the backbone to `hyenadna-small-32k-seqlen-hf` (d=256, 3.3M params vs tiny's d=128,
+1.6M) — a `--checkpoint` swap, same pipeline. Trained on T4 (~55 s/epoch, batch 128, AMP).
+
+| Metric | tiny-1k | small-32k | Δ |
+|---|---|---|---|
+| element val Pearson (primary) | 0.7026 | 0.7194 | +0.017 |
+| element val Pearson (organoid) | 0.694 | 0.7156 | +0.022 |
+| variant Pearson (Δ vs skew) | **0.149** | 0.1445 | −0.005 |
+| variant Spearman | 0.104 | 0.091 | −0.013 |
+| emVar AUC (loose) | 0.611 | 0.596 | −0.015 |
+| **emVar AUC (strict, the 164)** | 0.615 | **0.628** | **+0.013** |
+
+**Verdict: marginal.** 2× capacity improved *element activity* (+0.02) and nudged the strict-emVar
+classification AUC (+0.013 on the paper's significant set), but did **nothing** for the continuous
+variant-effect correlation (flat/slightly worse). This is the **data ceiling**: the model can fit
+element activity better, but the single-base variant signal is limited by the assay's noise, not
+by model capacity. Bigger HyenaDNA is a small, honest win on classification — not the lever that
+unlocks variant-effect. That lever is **architecture** (bidirectional Caduceus, §8), not size.
+Logged: `weights/results_s32.json`.
+
 ## 3. Pipeline validation — 163 ≈ 164
 
 The strict, active-gated emVar count from our reconstructed data was **163**, essentially the
