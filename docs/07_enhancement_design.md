@@ -198,6 +198,26 @@ the stacking thesis is now demonstrated on real data, not just synthetic. Logged
 `weights/meta_primary.json`. A siamese-Δ (0.28) primary feature would lift this further but needs the
 Caduceus GPU to score the fit slice (only the eval-slice siamese Δ is dumped).
 
+### Third result — Enformer frozen big-model feature (NEGATIVE on the default track)
+Ran the full frozen pipeline (docs/08): precomputed real Enformer zero-shot Δ from 196 kb hg38
+windows (brain CAGE track 4980) on GPU, cached 9,614 variants (**eval coverage 2273/2273**, fit
+7341/13000), then re-fit the meta locally against the trained model:
+
+| eval slice (2273 var, 104 emVar) | AUC |
+|---|---|
+| baseline `\|Δ\|` | 0.6096 |
+| meta + Enformer frozen | 0.6191 |
+| **meta organoid-only (kept)** | **0.6228** |
+
+**Verdict: honest negative on this track.** Fitted frozen weights are ~0 (`abs_frozen_delta`
+−0.068, `concordance_dna_frozen` +0.02) while dna (0.32) and organoid (0.30) carry the signal;
+adding frozen *lowered* the meta below organoid-only. Enformer's endogenous brain-CAGE readout does
+not track this cortical MPRA's single-base allelic effects. The wiring is correct and the eval
+coverage is complete, so this is a real result, not a plumbing artifact. `meta_primary.json` restored
+to the organoid-only fit (0.6228). **Retry paths (docs/08 §6), not yet exhausted:** a curated brain
+CAGE+DNase *track set* (`--tracks`), or **Borzoi** (RNA-seq tracks — a closer readout to allelic
+skew than CAGE). The cache is keyed by variant, so a track/model swap is one more GPU precompute.
+
 ---
 
 ## Sequencing & effort

@@ -11,9 +11,17 @@
 >   (coverage 0 → 2273/2273; `abs_frozen_delta` + `concordance_dna_frozen` fitted nonzero).
 > - `notebooks/run_frozen_enformer_colab.py` — the GPU run recipe (downloads hg38, precomputes, refits).
 >
-> **Remaining = compute, not code:** run the real Enformer precompute on GPU (Colab), then refit.
-> The synthetic smoke test HURT slightly (noisy signal) — a reminder the win is real only if
-> Enformer's chosen track carries emVar signal; that is the honest open experiment (§6 verdict).
+> **First real run — DONE, NEGATIVE on track 4980 (docs/07 §2, Third result).** Precomputed real
+> Enformer Δ (brain CAGE track 4980) from 196 kb hg38 windows on GPU; cached 9,614 variants (eval
+> coverage 2273/2273). Local refit vs the trained model: meta+frozen **0.6191** vs organoid-only
+> **0.6228** vs baseline 0.6096 — frozen weights ~0, it did not help. Enformer's endogenous brain-CAGE
+> readout does not track this cortical MPRA's allelic effects. Wiring correct, coverage complete → a
+> real negative, not a plumbing artifact. `meta_primary.json` kept at organoid-only.
+>
+> **Not yet exhausted (§6 retry paths, ~1 GPU run each):** (1) a curated brain CAGE+DNase **track set**
+> via `--tracks` (resolve indices from `targets_human.txt`); (2) **Borzoi** RNA-seq tracks — a closer
+> readout to allelic skew than CAGE. The cache is keyed by variant, so swapping track/model is one more
+> `precompute_frozen.py` run; everything downstream is unchanged.
 
 ## 0. Where things stand (why this is the last mile)
 
