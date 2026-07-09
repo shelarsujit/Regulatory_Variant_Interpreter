@@ -206,6 +206,7 @@ def main(argv=None):
     print("────────────────────────────────────────────────────────────────")
 
     out = args.out or os.path.join(_ROOT, "weights", f"meta_{args.context}.json")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)   # weights/ may not exist on a fresh clone
     meta.save(out)
     results = {
         "dna_source": dna_source, "n_fit": int(len(fit_df)), "n_eval": int(len(ev_df)),

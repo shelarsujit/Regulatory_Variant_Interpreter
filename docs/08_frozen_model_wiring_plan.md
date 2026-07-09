@@ -1,9 +1,19 @@
 # Enhancement #2 completion plan — wire a frozen foundation model into the meta-learner
 
-> **Status: PLAN ONLY (not implemented here).** A parallel session owns the meta-learner code
-> (`src/meta.py`, `eval/fit_meta.py`, `src/evidence.py`). This doc is the *process spec* for the one
-> remaining piece — a real `foundation_fn` — so it can be picked up without re-deriving anything.
-> Nothing below has been coded or run yet.
+> **Status: IMPLEMENTED (wiring done + smoke-tested; real GPU precompute pending).** The code the
+> plan below specifies now exists:
+> - `data/genome.py::window_centered` — fixed-length, variant-centered, N-padded window (tested on
+>   hg38 for the 3 demo variants: exact 196,608 bp, center base == ref).
+> - `src/foundation.py::make_enformer_fn` — the frozen-Enformer `foundation_fn` factory (lazy
+>   `enformer_pytorch` import; GPU-only; brain-track Δ = alt − ref).
+> - `eval/precompute_frozen.py` — one-time GPU cache builder (resumable, checkpoints every 100).
+> - `eval/fit_meta.py --frozen-cache` — injects `frozen_delta`; verified with a synthetic cache
+>   (coverage 0 → 2273/2273; `abs_frozen_delta` + `concordance_dna_frozen` fitted nonzero).
+> - `notebooks/run_frozen_enformer_colab.py` — the GPU run recipe (downloads hg38, precomputes, refits).
+>
+> **Remaining = compute, not code:** run the real Enformer precompute on GPU (Colab), then refit.
+> The synthetic smoke test HURT slightly (noisy signal) — a reminder the win is real only if
+> Enformer's chosen track carries emVar signal; that is the honest open experiment (§6 verdict).
 
 ## 0. Where things stand (why this is the last mile)
 

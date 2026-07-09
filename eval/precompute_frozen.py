@@ -37,9 +37,12 @@ def main(argv=None):
                     help="hg38 FASTA (Enformer pulls its own 196 kb window from this)")
     ap.add_argument("--tables", nargs="+",
                     default=[os.path.join(proc, f) for f in
-                             ("train_variants.parquet", "val_variants.parquet",
-                              "eval_variants_siamese.parquet", "calibration_variants.parquet")],
-                    help="variant tables to union over (missing ones are skipped)")
+                             # eval FIRST so a partial --limit covers the grade slice (which is what
+                             # a meaningful meta grade needs); then val + train for the fit set.
+                             ("eval_variants_siamese.parquet", "val_variants.parquet",
+                              "train_variants.parquet", "calibration_variants.parquet")],
+                    help="variant tables to union over (missing ones are skipped). Order matters "
+                         "with --limit: earlier tables are scored first.")
     ap.add_argument("--out", default=os.path.join(proc, "frozen_delta_cache.parquet"))
     ap.add_argument("--checkpoint", default="EleutherAI/enformer-official-rough")
     ap.add_argument("--tracks", default=None, help="comma-separated Enformer track indices (else default)")
@@ -87,29 +90,36 @@ def main(argv=None):
                           **({"tracks": tracks} if tracks else {}),
                           center_bins=args.center_bins)
 
-    rows, dropped, t0 = [], 0, time.time()
+    # cache is ACCUMULATIVE: seed with everything already computed, add newly scored, write the
+    # whole thing. So partial/limited/reordered runs never lose prior work — coverage only grows.
+    cache = {k: float(v) for k, v in done.items()}
+
+    def _flush():
+        pd.DataFrame([{"chrom": c, "pos": p, "ref": rf, "alt": al, "frozen_delta": dv}
+                      for (c, p, rf, al), dv in cache.items()]).to_parquet(args.out, index=False)
+
+    scored, dropped, t0 = 0, 0, time.time()
     for i, r in enumerate(allv.itertuples(), 1):
         key = (r.chrom, int(r.pos), r.ref, r.alt)
-        d = done.get(key)
-        if d is None:
-            try:
-                d = fn(r.chrom, int(r.pos), r.ref, r.alt)
-            except Exception as e:
-                print(f"[frozen] {key} failed: {type(e).__name__}: {e}")
-                d = None
+        if key in cache:
+            continue
+        try:
+            d = fn(r.chrom, int(r.pos), r.ref, r.alt)
+        except Exception as e:
+            print(f"[frozen] {key} failed: {type(e).__name__}: {e}")
+            d = None
         if d is None:
             dropped += 1
             continue
-        rows.append({"chrom": r.chrom, "pos": int(r.pos), "ref": r.ref, "alt": r.alt,
-                     "frozen_delta": float(d)})
-        if i % 100 == 0:
-            rate = i / (time.time() - t0)
-            print(f"[frozen] {i}/{len(allv)}  ({rate:.1f}/s, ~{(len(allv)-i)/max(rate,1e-9)/60:.0f} min left)")
-            pd.DataFrame(rows).to_parquet(args.out, index=False)   # checkpoint periodically
+        cache[key] = float(d)
+        scored += 1
+        if scored % 100 == 0:
+            rate = scored / (time.time() - t0)
+            print(f"[frozen] {i}/{len(allv)}  (+{scored} new, {rate:.1f}/s)")
+            _flush()                                                # checkpoint
 
-    out = pd.DataFrame(rows)
-    out.to_parquet(args.out, index=False)
-    print(f"\n[frozen] DONE — cached {len(out)} Δ ({dropped} dropped) -> {args.out}")
+    _flush()
+    print(f"\n[frozen] DONE — cache now {len(cache)} Δ (+{scored} new, {dropped} dropped) -> {args.out}")
     return 0
 
 

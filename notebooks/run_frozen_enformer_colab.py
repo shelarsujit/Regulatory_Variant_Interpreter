@@ -22,13 +22,31 @@
 """
 
 # ===================== CELL 3 — hg38 FASTA (Enformer needs 196 kb genomic context) =====================
-# (bash) ~1 GB gz download; gunzip -> ~3 GB; pyfaidx builds the .fai on first use (a minute).
+# (bash) ~1 GB gz -> ~3 GB unzipped; pyfaidx builds the .fai on first use (a minute).
+# ROBUST download: aria2 (multi-connection + resume) is far more reliable on Colab than a plain
+# wget, which silently truncates on a network hiccup ("unexpected end of file"). `gzip -t` verifies
+# the archive BEFORE gunzip so a partial download is caught, not fed to gunzip. Re-run this cell to
+# resume if it drops — aria2 continues the partial file.
+"""
+!apt-get -qq install -y aria2 >/dev/null
+!mkdir -p data/raw/genome
+!aria2c -c -x8 -s8 --retry-wait=5 --max-tries=10 --summary-interval=0 \
+    --dir=data/raw/genome -o hg38.fa.gz \
+    https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz
+# integrity gate: only gunzip if the archive is complete/valid
+!gzip -t data/raw/genome/hg38.fa.gz && gunzip -f data/raw/genome/hg38.fa.gz \
+    && ls -la data/raw/genome/hg38.fa \
+    || echo "download incomplete — re-run this cell (aria2 will resume)"
+"""
+
+# Fallback if aria2 is unavailable — wget with resume + retries + the same integrity gate:
 """
 !mkdir -p data/raw/genome
-!wget -q -O data/raw/genome/hg38.fa.gz \
+!wget --continue --tries=10 --read-timeout=30 --timeout=30 \
+    -O data/raw/genome/hg38.fa.gz \
     https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz
-!gunzip -f data/raw/genome/hg38.fa.gz
-!ls -la data/raw/genome/hg38.fa
+!gzip -t data/raw/genome/hg38.fa.gz && gunzip -f data/raw/genome/hg38.fa.gz \
+    && ls -la data/raw/genome/hg38.fa || echo "incomplete — re-run to resume"
 """
 
 # ===================== CELL 4 — upload the variant tables =====================
@@ -55,21 +73,23 @@ print("processed:", os.listdir("data/processed"))
 !python -c "import pandas as pd;d=pd.read_parquet('data/processed/frozen_delta_cache.parquet');print('cached',len(d),'| Δ range',round(d.frozen_delta.min(),3),round(d.frozen_delta.max(),3))"
 """
 
-# ===================== CELL 6 — refit the meta WITH the frozen feature + grade =====================
-# (bash) uses the activity model as the DNA-LM signal (CPU-loadable). To pair with the BETTER
-# siamese Δ, also upload weights/siamese_cad and pass --siamese-weights weights/siamese_cad.
-"""
-!python eval/fit_meta.py \
-    --activity-weights weights/primary \
-    --organoid-weights weights/organoid \
-    --frozen-cache data/processed/frozen_delta_cache.parquet
-!echo '--- read the frozen weights: nonzero abs_frozen_delta / concordance_dna_frozen = the win ---'
-!python -c "import json;d=json.load(open('weights/results_meta.json'));print('baseline',d['baseline_abs_delta_auc'],'meta',d['meta_auc']);print(d['feature_weights'])"
-"""
-
-# ===================== CELL 7 — download the cache + fitted meta =====================
-# (python) frozen_delta_cache.parquet makes every FUTURE refit CPU-only (no GPU again).
+# ===================== CELL 6 — download the frozen cache (fit LOCALLY, not here) =====================
+# (python) DO NOT fit the meta on Colab: the trained weights (weights/primary, organoid,
+# siamese_cad) live on your machine, not this fresh clone — fitting here loads an UNTRAINED model
+# and produces noise. Colab's only job is the expensive Enformer precompute. Download the cache and
+# fit locally where the weights are.
 from google.colab import files
-os.system("zip -r frozen_out.zip data/processed/frozen_delta_cache.parquet "
-          "weights/meta_primary.json weights/results_meta.json")
-files.download("frozen_out.zip")
+files.download("data/processed/frozen_delta_cache.parquet")
+
+# ===================== THEN, LOCALLY (CPU — where your weights are) =====================
+# 1. Put the downloaded file at:  data/processed/frozen_delta_cache.parquet
+# 2. Fit + grade the meta with your best DNA-LM signal:
+#      python eval/fit_meta.py --activity-weights weights/primary \
+#          --organoid-weights weights/organoid \
+#          --frozen-cache data/processed/frozen_delta_cache.parquet
+#    (or --siamese-weights weights/siamese_cad to pair with the 0.28 siamese Δ)
+# 3. Read weights/results_meta.json: nonzero abs_frozen_delta / concordance_dna_frozen = the win.
+#
+# NOTE on --limit: a partial cache must cover the EVAL slice to grade. precompute_frozen.py now
+# scores eval_variants first, so `--limit 2273` already covers the whole grade slice; a larger
+# limit adds fit-set coverage. For the full, robust number, run the precompute with no --limit.
