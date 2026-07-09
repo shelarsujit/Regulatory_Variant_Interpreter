@@ -49,17 +49,20 @@
     && ls -la data/raw/genome/hg38.fa || echo "incomplete — re-run to resume"
 """
 
-# ===================== CELL 4 — upload the variant tables =====================
-# (python) upload: train_variants.parquet, val_variants.parquet, eval_variants_siamese.parquet,
-# calibration_variants.parquet  (produced locally by data/make_variant_pairs.py).
+# ===================== CELL 4 — variant tables (upload ONE file, regenerate the rest) =====================
+# (python) Colab's filesystem is wiped on restart, so re-run this after any restart. You only need
+# to upload calibration_variants.parquet — make_variant_pairs.py deterministically (seed=7) rebuilds
+# train/val/eval_variants, the SAME split your trained models were held out against.
 import os
 from google.colab import files
 os.makedirs("data/processed", exist_ok=True)
-up = files.upload()
-for f in up:
-    if f.endswith(".parquet"):
-        os.replace(f, f"data/processed/{f}")
-print("processed:", os.listdir("data/processed"))
+if not os.path.isfile("data/processed/calibration_variants.parquet"):
+    up = files.upload()                                   # pick calibration_variants.parquet
+    for f in up:
+        if f.endswith(".parquet"):
+            os.replace(f, f"data/processed/{f}")
+os.system("python data/make_variant_pairs.py")           # -> train/val/eval_variants.parquet
+print("processed:", [f for f in os.listdir("data/processed") if f.endswith(".parquet")])
 
 # ===================== CELL 5 — precompute the frozen Δ cache (the expensive, one-time step) =====================
 # (bash) drop --limit for the full run. Resumable: re-run to continue after a disconnect.
