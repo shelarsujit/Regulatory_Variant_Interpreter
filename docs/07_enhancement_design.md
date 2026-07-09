@@ -179,6 +179,25 @@ is ready), (2) **real JASPAR/HOCOMOCO motifs** (replace the illustrative library
 σ** (`--n-seeds` run), (4) **signed GTEx**. This is the #2 analog of #1's Caduceus dependency:
 the code is complete and the number is honest; the win needs the independent signal wired in.
 
+### Second result — organoid feature added (WIN, offline, CPU)
+The Enformer frozen-Δ feature is genome-gated (Enformer needs ~196 kb context we don't have offline),
+but the charter's **independent organoid-context model** IS an offline independent signal. Added it as
+two features (`abs_organoid_delta`, `concordance_dna_organoid`) and re-fit on the variant train+val
+loci, graded on the same held-out slice:
+
+| | held-out AUC (2,273 var, 104 emVar) |
+|---|---|
+| baseline `|Δ|` (single feature = calibrator) | 0.6096 |
+| **meta-learner (+ organoid)** | **0.6228** |
+| gate | **META WINS (+0.0132)** |
+
+Fitted weights: `abs_dna_lm_delta` 0.316, **`abs_organoid_delta` 0.303** (nearly co-equal),
+`concordance_dna_organoid` −0.178, motif ≈0. The **independent second model is the real lever** —
+exactly the charter's "cheapest strong signal." Modest (+0.013) but a genuine, honest, offline win;
+the stacking thesis is now demonstrated on real data, not just synthetic. Logged: `weights/results_meta.json`,
+`weights/meta_primary.json`. A siamese-Δ (0.28) primary feature would lift this further but needs the
+Caduceus GPU to score the fit slice (only the eval-slice siamese Δ is dumped).
+
 ---
 
 ## Sequencing & effort

@@ -238,3 +238,8 @@ checkpoints/
 *.h5
 # HuggingFace / torch caches sometimes land locally
 .hf_cache/
+
+# --- Demo video pipeline & outputs (uploaded to the submission page, not judged from the repo) ---
+# The narrated demo MP4s go on the submission page directly; the local recording pipeline
+# (Playwright/edge-tts/ffmpeg driver) and its large media outputs are not part of the judged repo.
+demo/

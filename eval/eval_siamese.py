@@ -104,6 +104,14 @@ def main(argv=None):
     ap.add_argument("--batch-size", type=int, default=128)
     ap.add_argument("--device", default=None)
     ap.add_argument("--results-out", default=os.path.join(_ROOT, "weights", "results_siamese.json"))
+    ap.add_argument("--fit-calibrator", action="store_true",
+                    help="fit + save an isotonic Calibrator on the siamese Δ (held-out slice) so the "
+                         "trust layer calibrates the siamese scorer (default out: weights/calibrator_siamese.json)")
+    ap.add_argument("--calibrator-out", default=os.path.join(_ROOT, "weights", "calibrator_siamese.json"))
+    ap.add_argument("--tau", type=float, default=0.5, help="|skew| counted as a real effect (D6)")
+    ap.add_argument("--dump-predictions", default=None,
+                    help="save per-variant siamese Δ (+ skew/emVar labels) to this parquet/csv so the "
+                         "calibrator can be REFIT offline on CPU later — GPU is then needed only once")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args(argv)
 
@@ -127,13 +135,14 @@ def main(argv=None):
     print(f"[eval] {len(df)} held-out variants | loose emVars: {int(emvar_loose.sum())}")
 
     rows = []
+    siamese_delta = None
 
     if args.siamese_weights:
         from src.siamese_predictor import SiameseVariantScorer
         s = SiameseVariantScorer(args.siamese_weights, device=args.device,
                                  batch_size=args.batch_size).load()
-        d = np.array(s.score_variants_batch(refs, alts))
-        rows.append(_metrics("siamese", d, skew, emvar_loose, emvar_strict))
+        siamese_delta = np.array(s.score_variants_batch(refs, alts))
+        rows.append(_metrics("siamese", siamese_delta, skew, emvar_loose, emvar_strict))
         print(f"[eval] siamese scored (backbone={s.backbone_type})")
 
     if args.activity_weights:
@@ -164,9 +173,37 @@ def main(argv=None):
             print(f"\n  gate ({key}): siamese {sia} vs activity {act} -> {verdict}")
     print("────────────────────────────────────────────────────────────────")
 
+    # dump per-variant siamese Δ so the calibrator can be refit OFFLINE (CPU) later — GPU once.
+    if args.dump_predictions and siamese_delta is not None:
+        dump = df[["chrom", "pos", "ref", "alt", "measured_skew", "is_emvar"]].copy()
+        dump["siamese_delta"] = siamese_delta
+        if "rsid" in df.columns:
+            dump["rsid"] = df["rsid"].values
+        try:
+            dump.to_parquet(args.dump_predictions, index=False)
+        except Exception:
+            dump.to_csv(args.dump_predictions.rsplit(".", 1)[0] + ".csv", index=False)
+        print(f"[eval] dumped {len(dump)} per-variant siamese Δ -> {args.dump_predictions}")
+
+    # fit + save an isotonic calibrator on the siamese Δ so the trust layer can calibrate it.
+    # Fit on this held-out slice (the only siamese-clean labels); isotonic is monotonic so it does
+    # not change ranking/AUC — only maps |Δ| -> P(effect). Reliability is descriptive.
+    calibrator_out = None
+    if args.fit_calibrator:
+        if siamese_delta is None:
+            print("[eval] --fit-calibrator needs --siamese-weights; skipping")
+        else:
+            from src.trust import Calibrator
+            cal = Calibrator().fit(siamese_delta, skew, is_emvar=emvar_loose, tau=args.tau)
+            cal.save(args.calibrator_out)
+            calibrator_out = args.calibrator_out
+            print(f"[eval] fit siamese calibrator -> {args.calibrator_out}  "
+                  f"(diagnostics: {cal.diagnostics})")
+
     out = {"eval_table": os.path.abspath(args.eval_table), "n": int(len(df)),
            "loose_emvars": int(emvar_loose.sum()),
            "strict_emvars": int(emvar_strict.sum()) if emvar_strict is not None else None,
+           "calibrator_out": calibrator_out,
            "results": rows}
     os.makedirs(os.path.dirname(args.results_out), exist_ok=True)
     with open(args.results_out, "w") as f:

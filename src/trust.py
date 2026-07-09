@@ -153,6 +153,7 @@ def _fallback_confidence(model_delta: float, scale: float = 0.4) -> float:
 
 def build_trust_report(model_delta: float, evidence: list[EvidenceItem], *,
                        calibrator: Calibrator | None = None,
+                       base_confidence: float | None = None,
                        evidence_weight: float = 0.6,
                        model_uncertainty: float | None = None,
                        uncertainty_weight: float = 2.0,
@@ -167,8 +168,17 @@ def build_trust_report(model_delta: float, evidence: list[EvidenceItem], *,
     log-odds toward 0 (confidence toward 0.5): a variant the ensemble disagrees on is trusted
     less. Evidence is independent of the model, so it is NOT shrunk.
     """
-    base = calibrator.transform(model_delta) if (calibrator and calibrator.is_fitted) \
-        else _fallback_confidence(model_delta)
+    # base model confidence: an explicit `base_confidence` (e.g. a MetaCombiner's P over multiple
+    # independent features) wins; else the isotonic calibrator; else the documented heuristic.
+    if base_confidence is not None:
+        base = float(min(max(base_confidence, 1e-3), 1 - 1e-3))
+        base_kind = "meta-learner"
+    elif calibrator and calibrator.is_fitted:
+        base = calibrator.transform(model_delta)
+        base_kind = "calibrated"
+    else:
+        base = _fallback_confidence(model_delta)
+        base_kind = "uncalibrated heuristic"
 
     agreements = [e for e in evidence if e.concordant is True]
     conflicts = [e for e in evidence if e.concordant is False]
@@ -190,7 +200,7 @@ def build_trust_report(model_delta: float, evidence: list[EvidenceItem], *,
 
     rationale = (
         f"model confidence {base:.0%} "
-        f"({'calibrated' if (calibrator and calibrator.is_fitted) else 'uncalibrated heuristic'}); "
+        f"({base_kind}); "
         f"{len(agreements)} concordant source(s), {len(conflicts)} conflict(s) "
         f"-> {confidence:.0%}."
     )

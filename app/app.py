@@ -34,46 +34,139 @@ for _p in (_ROOT, os.path.join(_ROOT, "data")):
 # --------------------------------------------------------------------------- lazy singletons
 @functools.lru_cache(maxsize=1)
 def _genome():
+    """hg38 window reader for the coordinates tab. Preference:
+       RVI_GENOME (a real hg38 FASTA, any variant)  ->  a CalibrationGenome backed by the held-out
+       variant table (KNOWN variants only, zero-download — enables the curated demos offline).
+    Set RVI_CALIB_GENOME=0 to disable the offline fallback."""
     path = os.environ.get("RVI_GENOME")
-    if not path or not os.path.isfile(path):
-        return None
-    from genome import Genome
-    return Genome(path)
+    if path and os.path.isfile(path):
+        from genome import Genome
+        return Genome(path)
+    if os.environ.get("RVI_CALIB_GENOME", "1") != "0":
+        calib = os.environ.get("RVI_CALIBRATION") or \
+            os.path.join(_ROOT, "data", "processed", "calibration_variants.parquet")
+        if os.path.isfile(calib):
+            try:
+                from calib_genome import CalibrationGenome
+                return CalibrationGenome(calib)
+            except Exception:
+                return None
+    return None
 
 
 def _resolve_weights(context: str):
-    """Weights dir for a context: RVI_WEIGHTS_<CTX> env, else weights/<ctx>_s32, else weights/<ctx>."""
+    """Weights dir for a context. Preference order:
+       RVI_WEIGHTS_<CTX> env  ->  a siamese variant-effect model (primary only)  ->
+       weights/<ctx>_s32  ->  weights/<ctx>.
+    The siamese model is the project's best variant-effect scorer (docs/07 §Decisive result,
+    Δ-Pearson 0.28 on Caduceus); it applies to the PRIMARY call only (organoid stays an activity
+    model). Set RVI_SIAMESE=0 to force the activity model."""
     env = os.environ.get(f"RVI_WEIGHTS_{context.upper()}")
-    for cand in (env, os.path.join(_ROOT, "weights", f"{context}_s32"),
-                 os.path.join(_ROOT, "weights", context)):
+    cands = [env]
+    if context == "primary" and os.environ.get("RVI_SIAMESE", "1") != "0":
+        cands += [os.environ.get("RVI_WEIGHTS_SIAMESE"),
+                  os.path.join(_ROOT, "weights", "siamese_cad"),
+                  os.path.join(_ROOT, "weights", "siamese_primary")]
+    cands += [os.path.join(_ROOT, "weights", f"{context}_s32"),
+              os.path.join(_ROOT, "weights", context)]
+    for cand in cands:
         if cand and os.path.isdir(cand) and os.path.isfile(os.path.join(cand, "model.pt")):
+            return cand
+    return None
+
+
+def _is_siamese_ckpt(weights_dir: str | None) -> bool:
+    """Peek at model.pt's meta to see if this checkpoint is a siamese variant-effect model."""
+    if not weights_dir:
+        return False
+    mp = os.path.join(weights_dir, "model.pt")
+    if not os.path.isfile(mp):
+        return False
+    try:
+        import torch
+        blob = torch.load(mp, map_location="cpu")
+        return isinstance(blob, dict) and blob.get("meta", {}).get("objective") == "siamese"
+    except Exception:
+        return False
+
+
+def _resolve_activity_weights(context: str):
+    """Weights for the ACTIVITY model only (skip siamese) — the CPU-safe fallback path."""
+    for cand in (os.environ.get(f"RVI_WEIGHTS_{context.upper()}"),
+                 os.path.join(_ROOT, "weights", f"{context}_s32"),
+                 os.path.join(_ROOT, "weights", context)):
+        if cand and os.path.isdir(cand) and os.path.isfile(os.path.join(cand, "model.pt")) \
+                and not _is_siamese_ckpt(cand):
             return cand
     return None
 
 
 @functools.lru_cache(maxsize=2)
 def _predictor(context: str):
-    """Load a (possibly untrained) ActivityPredictor for a context, cached.
+    """Load a variant scorer for a context, cached. Dispatches to the SiameseVariantScorer when
+    the resolved checkpoint is a siamese model, else the ActivityPredictor. Both expose
+    `score_variant` + `is_finetuned` + `seq_len`, so interpret_variant treats them identically.
 
-    The backbone is auto-detected from the weights (small-32k etc.), so no checkpoint flag needed.
-    """
+    If the siamese checkpoint fails to load — e.g. a Caduceus siamese model on a CPU box without
+    mamba-ssm — we fall back to the activity model so the demo still runs (degraded, not broken).
+    The backbone is auto-detected from the weights, so no checkpoint flag is needed."""
+    weights = _resolve_weights(context)
+    if _is_siamese_ckpt(weights):
+        try:
+            from src.siamese_predictor import SiameseVariantScorer
+            return SiameseVariantScorer(weights).load()
+        except Exception as e:
+            print(f"[app] siamese scorer at {weights} failed to load ({type(e).__name__}: {e}); "
+                  f"falling back to the activity model.")
+            weights = _resolve_activity_weights(context)
     from src.predictor import ActivityPredictor
-    return ActivityPredictor(context=context, weights=_resolve_weights(context)).load()
+    return ActivityPredictor(context=context, weights=weights).load()
 
 
 @functools.lru_cache(maxsize=1)
 def _calibrator():
-    """Load the saved isotonic calibrator (fit offline by eval/calibrate.py). Fast — no refit.
+    """Load the saved isotonic calibrator (fit offline). Fast — no refit.
 
-    Path: RVI_CALIBRATION env, else weights/calibrator_primary.json. None if absent (trust then
-    falls back to the documented uncalibrated heuristic).
+    Path: RVI_CALIBRATION env; else, if the primary scorer is a siamese model AND a
+    calibrator_siamese.json exists, use that (it was fit on the siamese Δ distribution); else
+    weights/calibrator_primary.json. None if absent (trust then falls back to the uncalibrated
+    heuristic). Matching the calibrator to the scorer keeps the confidence honest.
     """
-    path = os.environ.get("RVI_CALIBRATION") or os.path.join(_ROOT, "weights", "calibrator_primary.json")
+    path = os.environ.get("RVI_CALIBRATION")
+    if not path:
+        siamese_cal = os.path.join(_ROOT, "weights", "calibrator_siamese.json")
+        primary_cal = os.path.join(_ROOT, "weights", "calibrator_primary.json")
+        # Key off the ACTUALLY-LOADED primary scorer, not the resolved checkpoint: on a CPU box the
+        # Caduceus siamese model fails to load and _predictor falls back to the activity model, so
+        # the siamese calibrator would be mismatched. Match the calibrator to what is really served.
+        served_is_siamese = type(_predictor("primary")).__name__ == "SiameseVariantScorer"
+        if served_is_siamese and os.path.isfile(siamese_cal):
+            path = siamese_cal
+        else:
+            path = primary_cal
     if not os.path.isfile(path):
         return None
     try:
         from src.trust import Calibrator
         return Calibrator.load(path)
+    except Exception:
+        return None
+
+
+@functools.lru_cache(maxsize=1)
+def _meta():
+    """Optional stacking meta-learner (docs/07 #2). OFF by default — set RVI_META=1 to enable.
+    Fuses dna Δ + organoid Δ + motif into the base confidence (beats the single-feature calibrator
+    on held-out variants: AUC 0.623 vs 0.610). Returns None unless enabled AND weights/meta_*.json
+    exists, so default behavior is exactly the isotonic-calibrator path."""
+    if os.environ.get("RVI_META", "0") != "1":
+        return None
+    path = os.environ.get("RVI_META_WEIGHTS") or os.path.join(_ROOT, "weights", "meta_primary.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        from src.meta import MetaCombiner
+        return MetaCombiner.load(path)
     except Exception:
         return None
 
@@ -146,6 +239,13 @@ def _render(result, banner: str = "") -> str:
                 lines.append(f"- **{e.source}** — {e.summary}")
         lines.append(f"\n> {t.rationale}")
 
+    ml = result.provenance.get("meta_learner")
+    if ml:
+        drivers = ", ".join(f"{n} ({c:+.2f})" for n, c in ml.get("top_contributors", []))
+        lines.append(f"\n### 🧠 Meta-learner (stacked confidence)")
+        lines.append(f"- base confidence **{ml['base_confidence']:.0%}** from fused features; "
+                     f"top drivers: {drivers}")
+
     if result.provenance.get("genome_ref_warning"):
         lines.append(f"\n⚠️ {result.provenance['genome_ref_warning']}")
     return "\n".join(lines)
@@ -180,7 +280,8 @@ def interpret_coords(chrom, pos, ref, alt):
         result = interpret_variant(
             chrom, pos, ref, alt, genome=g,
             predictor=_predictor("primary"), organoid_predictor=_predictor("organoid"),
-            calibrator=_calibrator(), evidence_resources={"gtex_table": _gtex()}, **seq_kwargs)
+            calibrator=_calibrator(), meta=_meta(),
+            evidence_resources={"gtex_table": _gtex()}, **seq_kwargs)
         return _render(result, _untrained_banner("primary", "organoid"))
     except Exception as e:
         return f"**Error:** {type(e).__name__}: {e}"
@@ -199,7 +300,7 @@ def interpret_seqs(seq_ref, seq_alt):
         result = interpret_variant(
             "chrNA", i, seq_ref[i], seq_alt[i], seq_ref=seq_ref, seq_alt=seq_alt,
             predictor=_predictor("primary"), organoid_predictor=_predictor("organoid"),
-            calibrator=_calibrator())
+            calibrator=_calibrator(), meta=_meta())
         return _render(result, _untrained_banner("primary", "organoid"))
     except Exception as e:
         return f"**Error:** {type(e).__name__}: {e}"

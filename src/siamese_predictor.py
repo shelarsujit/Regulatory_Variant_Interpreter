@@ -111,6 +111,10 @@ class SiameseVariantScorer:
         self._tokenizer = None
         self.backbone_type = None
         self.meta = {}
+        # duck-type parity with ActivityPredictor so interpret_variant / app.py accept a siamese
+        # scorer wherever they accept a predictor (both expose score_variant + these attrs).
+        self.is_finetuned = False
+        self.seq_len = 270
 
     def load(self) -> "SiameseVariantScorer":
         if self._module is not None:
@@ -141,6 +145,8 @@ class SiameseVariantScorer:
                                      "model_type", "hyenadna")
         self._tokenizer = build_tokenizer(self.backbone_type)
         self._module.to(self.device).eval()
+        self.is_finetuned = True                 # a siamese checkpoint is fine-tuned by construction
+        self.seq_len = int(self.meta.get("seq_len", self.seq_len))
         return self
 
     def _require(self):

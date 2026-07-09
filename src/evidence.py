@@ -222,6 +222,21 @@ def from_frozen_foundation_model(chrom, pos, ref, alt, model_direction, build="h
     )
 
 
+def frozen_foundation_delta(chrom, pos, ref, alt, build="hg38",
+                            foundation_fn: Callable[..., float] | None = None):
+    """Return the frozen model's signed zero-shot Δ as a raw SCALAR (not an EvidenceItem).
+
+    Additive companion to `from_frozen_foundation_model` (which builds the audit-chain item):
+    this returns the number the stacking meta-learner (src/meta.py, docs/07 #2) consumes as its
+    `frozen_delta` feature. None when no `foundation_fn` is wired — the meta-learner then imputes
+    the feature, so an unwired frozen model degrades gracefully instead of erroring.
+    """
+    if foundation_fn is None:
+        return None
+    delta = foundation_fn(chrom, pos, ref, alt, build)
+    return None if delta is None else float(delta)
+
+
 def from_organoid_model(seq_ref, seq_alt, model_direction, organoid_predictor=None,
                         organoid_delta=None):
     """Our independent organoid-context model (decision D4). Note: `interpret_variant`

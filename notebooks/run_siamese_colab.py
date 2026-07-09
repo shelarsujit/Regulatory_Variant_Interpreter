@@ -72,22 +72,27 @@ print("warm-start ckpt OK | objective:", blob.get("meta", {}).get("backbone"),
     --epochs 10 --batch-size 64 --lr 2e-4 --amp
 """
 
-# ===================== CELL 7 — eval: siamese vs activity baseline, SAME held-out slice =====================
-# (bash) scores BOTH models on eval_variants_siamese.parquet. Gate: siamese emVar AUC beats
-# the activity baseline (and beats the full-set Caduceus 0.6303). Writes weights/results_siamese.json.
+# ===================== CELL 7 — eval + calibrate: siamese vs activity, SAME held-out slice =====================
+# (bash) scores BOTH models on eval_variants_siamese.parquet AND fits an isotonic calibrator on the
+# siamese Δ (--fit-calibrator -> weights/calibrator_siamese.json) so the trust layer calibrates the
+# siamese scorer. Gate: siamese emVar AUC beats the activity baseline (and the full-set Caduceus 0.6303).
 """
 !python eval/eval_siamese.py \
     --siamese-weights weights/siamese_cad \
     --activity-weights weights/primary_cad --activity-context primary \
     --s2 data/raw/DataS2.xlsx \
+    --fit-calibrator --calibrator-out weights/calibrator_siamese.json \
+    --dump-predictions weights/siamese_eval_predictions.parquet \
     --results-out weights/results_siamese.json
 !echo '--- headline ---'
 !python -c "import json;r=json.load(open('weights/results_siamese.json'));print('n=',r['n'],'strict_emvars=',r['strict_emvars']);[print(x) for x in r['results']]"
 """
 
-# ===================== CELL 8 — download weights + results =====================
-# (python)
+# ===================== CELL 8 — download weights + results + calibrator =====================
+# (python) siamese_cad/ + its calibrator are what the app serves (app.py auto-detects the siamese
+# checkpoint and prefers calibrator_siamese.json). Unzip into the repo root to deploy.
 from google.colab import files
-os.system("zip -r siamese_out.zip weights/siamese_cad weights/results_siamese.json "
+os.system("zip -r siamese_out.zip weights/siamese_cad weights/calibrator_siamese.json "
+          "weights/siamese_eval_predictions.parquet weights/results_siamese.json "
           "data/processed/variant_pairs_manifest.json")
 files.download("siamese_out.zip")
