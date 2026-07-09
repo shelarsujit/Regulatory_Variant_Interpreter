@@ -48,15 +48,20 @@ def _auc(scores, labels):
     return float((ranks[y].sum() - pos * (pos + 1) / 2) / (pos * neg))
 
 
-def _signals_for(df, delta, motif_lib, organoid_delta=None):
+def _signals_for(df, delta, motif_lib, organoid_delta=None, frozen_lookup=None):
     """Build a raw-signal dict per row. delta = DNA-LM Δ array aligned to df; organoid_delta =
-    optional independent organoid-model Δ array; motif_lib = a real JASPAR library or None."""
+    optional independent organoid-model Δ array; motif_lib = a real JASPAR library or None;
+    frozen_lookup = optional {(chrom,pos,ref,alt): frozen_delta} from the precomputed cache."""
     from src import motifs
     out = []
     for i, (_, row) in enumerate(df.iterrows()):
         sig = {"dna_lm_delta": float(delta[i])}
         if organoid_delta is not None:
             sig["organoid_delta"] = float(organoid_delta[i])
+        if frozen_lookup is not None:
+            fd = frozen_lookup.get((row["chrom"], int(row["pos"]), row["ref"], row["alt"]))
+            if fd is not None:
+                sig["frozen_delta"] = float(fd)
         # motif Δscore: top |gain/loss| overlapping the variant
         try:
             ev = motifs.annotate_motifs(str(row["seq_ref"]), str(row["seq_alt"]), library=motif_lib)
@@ -97,6 +102,8 @@ def main(argv=None):
                     help="independent organoid-context model -> organoid_delta feature ('' to skip)")
     ap.add_argument("--jaspar", default=None,
                     help="path to a JASPAR .pfm/.jaspar file -> real motif library (else illustrative)")
+    ap.add_argument("--frozen-cache", default=None,
+                    help="precomputed frozen-model Δ parquet (eval/precompute_frozen.py) -> frozen_delta feature")
     ap.add_argument("--context", default="primary")
     ap.add_argument("--batch-size", type=int, default=128)
     ap.add_argument("--device", default=None)
@@ -162,8 +169,16 @@ def main(argv=None):
         motif_lib = motifs.load_jaspar_pfms(args.jaspar)
         print(f"[meta] loaded {len(motif_lib)} JASPAR motifs from {args.jaspar}")
 
-    fit_sig = _signals_for(fit_df, fit_delta, motif_lib, fit_org)
-    ev_sig = _signals_for(ev_df, ev_delta, motif_lib, ev_org)
+    # optional precomputed frozen-model Δ (Enformer) -> the independent stacking feature (docs/08)
+    frozen_lookup = None
+    if args.frozen_cache and os.path.isfile(args.frozen_cache):
+        fc = pd.read_parquet(args.frozen_cache)
+        frozen_lookup = {(r.chrom, int(r.pos), r.ref, r.alt): float(r.frozen_delta)
+                         for r in fc.itertuples()}
+        print(f"[meta] loaded {len(frozen_lookup)} frozen Δ from {args.frozen_cache}")
+
+    fit_sig = _signals_for(fit_df, fit_delta, motif_lib, fit_org, frozen_lookup)
+    ev_sig = _signals_for(ev_df, ev_delta, motif_lib, ev_org, frozen_lookup)
     print(f"[meta] fit feature coverage:  {_coverage(fit_sig, RAW_SIGNALS)}")
     print(f"[meta] eval feature coverage: {_coverage(ev_sig, RAW_SIGNALS)}")
 

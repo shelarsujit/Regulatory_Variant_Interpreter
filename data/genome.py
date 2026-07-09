@@ -67,3 +67,25 @@ class Genome:
         end = start + length
         seq = self.fetch(chrom, start, end)
         return seq, c0 - start
+
+    def window_centered(self, chrom: str, center_1based: int, length: int) -> str:
+        """A `length`-bp window with the 1-based center base FIXED at index `length // 2`.
+
+        Unlike `window`, this never shifts the center: near a contig edge it pads with 'N' so the
+        return is always exactly `length` long and the variant always sits at `length // 2`. This
+        is required by fixed-input models like Enformer (196,608 bp, variant in the center bin).
+        """
+        if chrom not in self._fa:
+            raise KeyError(f"contig {chrom!r} not in FASTA {self.path}")
+        half = length // 2
+        c0 = center_1based - 1                       # 0-based center
+        start, end = c0 - half, c0 - half + length   # center lands at index `half`
+        contig_len = len(self._fa[chrom])
+        left_pad = max(0, -start)
+        right_pad = max(0, end - contig_len)
+        core = self.fetch(chrom, max(0, start), min(end, contig_len))
+        seq = "N" * left_pad + core + "N" * right_pad
+        # guard: exact length + center integrity
+        if len(seq) != length:
+            seq = (seq + "N" * length)[:length]
+        return seq
