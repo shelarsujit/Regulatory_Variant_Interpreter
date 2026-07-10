@@ -18,10 +18,16 @@
 > readout does not track this cortical MPRA's allelic effects. Wiring correct, coverage complete → a
 > real negative, not a plumbing artifact. `meta_primary.json` kept at organoid-only.
 >
-> **Not yet exhausted (§6 retry paths, ~1 GPU run each):** (1) a curated brain CAGE+DNase **track set**
-> via `--tracks` (resolve indices from `targets_human.txt`); (2) **Borzoi** RNA-seq tracks — a closer
-> readout to allelic skew than CAGE. The cache is keyed by variant, so swapping track/model is one more
-> `precompute_frozen.py` run; everything downstream is unchanged.
+> **Retry 1 — curated CAGE track set, DONE, still negative but moved (docs/07 §2).** `DEFAULT_TRACKS`
+> changed from adult-brain 4980 to a mean over 9 developmental-cortical CAGE tracks (fetal brain, neural
+> stem cells, cortex, neurons — from `targets_human.txt`). Re-precomputed, eval coverage 2273/2273:
+> meta+frozen **0.6201** vs organoid-only **0.6228**. Now a real signal (`concordance_dna_frozen` −0.15
+> vs +0.02, Δ variance 4×) but still short of organoid-only. Caveat: thin fit coverage (2727/13000 from
+> `--limit 5000`).
+>
+> **Remaining (§6):** (1) **full precompute** (no `--limit`) → full fit coverage to estimate the frozen
+> weight cleanly — the one clean shot left for CAGE; (2) **Borzoi** RNA-seq tracks (closer to allelic
+> skew than CAGE) — the last card. Cache keyed by variant, so each is one more `precompute_frozen.py` run.
 
 ## 0. Where things stand (why this is the last mile)
 

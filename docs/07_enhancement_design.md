@@ -214,9 +214,27 @@ windows (brain CAGE track 4980) on GPU, cached 9,614 variants (**eval coverage 2
 adding frozen *lowered* the meta below organoid-only. Enformer's endogenous brain-CAGE readout does
 not track this cortical MPRA's single-base allelic effects. The wiring is correct and the eval
 coverage is complete, so this is a real result, not a plumbing artifact. `meta_primary.json` restored
-to the organoid-only fit (0.6228). **Retry paths (docs/08 §6), not yet exhausted:** a curated brain
-CAGE+DNase *track set* (`--tracks`), or **Borzoi** (RNA-seq tracks — a closer readout to allelic
-skew than CAGE). The cache is keyed by variant, so a track/model swap is one more GPU precompute.
+to the organoid-only fit (0.6228).
+
+**Retry 1 — curated developmental-cortical CAGE track set (still negative, but it moved).** Track
+4980 is adult whole-brain; the Deng MPRA is mid-gestation cortex, so `foundation.DEFAULT_TRACKS` was
+changed to a mean over 9 curated CAGE tracks — fetal brain (4981), neural stem cells (4798), cortex,
+neurons (resolved from `targets_human.txt`, false positives excluded). Re-precomputed on GPU, eval
+coverage 2273/2273:
+
+| eval slice | AUC |
+|---|---|
+| baseline | 0.6096 |
+| meta + curated brain-CAGE frozen | 0.6201 |
+| **meta organoid-only (kept)** | **0.6228** |
+
+The curated set is a real change, not a null: `concordance_dna_frozen` came up to **−0.15** (vs +0.02
+for the single track) and Δ variance rose 4× — the developmentally-matched readout *does* carry some
+allelic signal. But the net meta (0.6201) still does not clear organoid-only (0.6228). Caveat: thin
+fit-frozen coverage (2727/13000 from `--limit 5000`) — the weight is estimated from few examples, so
+a **full precompute** (no `--limit`, full fit coverage) is the one clean shot left before rejecting
+CAGE; after that, **Borzoi** RNA-seq tracks (a closer readout to allelic skew) is the last card.
+Logged: `weights/results_meta_braincage.json`. `meta_primary.json` kept at organoid-only (0.6228).
 
 ---
 
