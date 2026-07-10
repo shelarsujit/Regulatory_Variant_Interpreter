@@ -228,13 +228,25 @@ coverage 2273/2273:
 | meta + curated brain-CAGE frozen | 0.6201 |
 | **meta organoid-only (kept)** | **0.6228** |
 
-The curated set is a real change, not a null: `concordance_dna_frozen` came up to **−0.15** (vs +0.02
-for the single track) and Δ variance rose 4× — the developmentally-matched readout *does* carry some
-allelic signal. But the net meta (0.6201) still does not clear organoid-only (0.6228). Caveat: thin
-fit-frozen coverage (2727/13000 from `--limit 5000`) — the weight is estimated from few examples, so
-a **full precompute** (no `--limit`, full fit coverage) is the one clean shot left before rejecting
-CAGE; after that, **Borzoi** RNA-seq tracks (a closer readout to allelic skew) is the last card.
-Logged: `weights/results_meta_braincage.json`. `meta_primary.json` kept at organoid-only (0.6228).
+The curated set looked like a real change on the thin-coverage run: `concordance_dna_frozen` came up
+to −0.15 (vs +0.02 for the single track) and Δ variance rose 4×. **But the FULL precompute settled
+it.** Re-precomputed all 15,273 variants (eval 2273/2273 AND fit 13000/13000) and re-fit:
+
+| eval slice, full coverage | AUC | frozen weights |
+|---|---|---|
+| baseline | 0.6096 | — |
+| meta + curated-CAGE frozen (full) | 0.6214 | `abs_frozen` 0.024, `concordance` **0.004** |
+| **meta organoid-only (kept)** | **0.6228** | — |
+
+**With full fit coverage the frozen weights collapse to ~0** — the retry-1 `−0.15` was a small-sample
+artifact of thin coverage (2727 fit), not signal. The meta reverts to the organoid+dna stack
+(0.6214 ≈ organoid-only; gap = noise). **Firm verdict: Enformer's frozen CAGE Δ carries no reliable
+emVar signal for this MPRA** — single track, curated developmental set, and full coverage all agree.
+CAGE is exhausted; the frozen big-model feature is a documented negative. The one remaining (optional)
+card is **Borzoi** RNA-seq tracks — a closer readout to allelic skew than CAGE — but the consistent
+null across three CAGE configurations suggests Enformer-family *endogenous* readouts simply don't
+track this *episomal* MPRA's single-base effects. Logged: `weights/results_meta_braincage_full.json`.
+`meta_primary.json` kept at organoid-only (0.6228) — the real Enhancement-#2 win.
 
 ---
 

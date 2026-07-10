@@ -25,9 +25,17 @@
 > vs +0.02, Δ variance 4×) but still short of organoid-only. Caveat: thin fit coverage (2727/13000 from
 > `--limit 5000`).
 >
-> **Remaining (§6):** (1) **full precompute** (no `--limit`) → full fit coverage to estimate the frozen
-> weight cleanly — the one clean shot left for CAGE; (2) **Borzoi** RNA-seq tracks (closer to allelic
-> skew than CAGE) — the last card. Cache keyed by variant, so each is one more `precompute_frozen.py` run.
+> **Retry 1b — FULL precompute, DONE. Firm negative for CAGE.** Re-precomputed all 15,273 variants
+> (eval 2273/2273 AND fit 13000/13000). Full-coverage fit: meta+frozen **0.6214** vs organoid-only
+> **0.6228**; frozen weights **collapse to ~0** (`concordance_dna_frozen` 0.004 — the retry-1 −0.15 was a
+> thin-coverage artifact). Single track, curated set, and full coverage all agree: **Enformer CAGE Δ
+> carries no reliable emVar signal for this MPRA.** CAGE is exhausted.
+>
+> **Only card left (optional): Borzoi** RNA-seq tracks (closer to allelic skew than CAGE). But the
+> consistent null across three CAGE configs suggests Enformer-family *endogenous* readouts don't track
+> this *episomal* MPRA's single-base effects — a plausible biological reason, not a wiring gap. The
+> Enhancement-#2 win stays the independent **organoid** stack (0.6228 > 0.6096); the frozen feature is
+> a fully-wired, thoroughly-tested, honestly-documented negative.
 
 ## 0. Where things stand (why this is the last mile)
 
