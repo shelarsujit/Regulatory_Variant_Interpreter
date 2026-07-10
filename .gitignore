@@ -243,3 +243,4 @@ checkpoints/
 # The narrated demo MP4s go on the submission page directly; the local recording pipeline
 # (Playwright/edge-tts/ffmpeg driver) and its large media outputs are not part of the judged repo.
 demo/
+deploy/_stage/
