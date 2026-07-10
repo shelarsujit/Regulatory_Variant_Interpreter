@@ -24,10 +24,23 @@ SEQ_LEN = 196_608          # Enformer receptive field
 N_BINS = 896               # output bins (128 bp each) at the default target length
 CENTER = N_BINS // 2       # the variant sits in the center output bin
 
-# Brain-related human CAGE/DNase track indices (Enformer `targets_human.txt`). A single brain CAGE
-# track is the MVP the plan specifies; averaging a small curated set is steadier. Resolve/expand
-# from targets_human.txt on the GPU box; these are a reasonable brain-CAGE default.
-DEFAULT_TRACKS = (4980,)
+# Curated developmental/cortical CAGE tracks (Enformer `targets_human.txt`) — averaged. The Deng
+# MPRA is MID-GESTATION human cortex + organoids, so the readout should emphasize FETAL brain,
+# neural progenitors, cortex, and neurons — NOT adult whole-brain (the single track 4980 tried
+# first, a NEGATIVE; docs/07 §2 Third result). False positives excluded (smooth-muscle/brain-
+# vascular 4768, renal-cortical 4882, adrenal-cortex 5051). CAGE (transcription initiation) is the
+# closest proxy to an enhancer's MPRA activity; averaging a curated set is steadier than one track.
+DEFAULT_TRACKS = (
+    4680,   # CAGE:brain, adult, pool1
+    4769,   # CAGE:Astrocyte - cerebral cortex
+    4798,   # CAGE:Neural stem cells        (progenitors — closest to the MPRA cell state)
+    4981,   # CAGE:brain, fetal, pool1      (developmental — matches mid-gestation cortex)
+    5103,   # CAGE:occipital cortex, adult
+    5112,   # CAGE:Neurons
+    5263,   # CAGE:occipital cortex - adult
+    5282,   # CAGE:occipital cortex, newborn (developmental cortex)
+    5305,   # CAGE:parietal cortex, adult
+)
 
 
 def make_enformer_fn(genome, *, device: str = "cuda",
