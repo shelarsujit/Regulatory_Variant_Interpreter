@@ -46,9 +46,10 @@ FILES = [
 
 
 def stage():
-    if os.path.isdir(_STAGE):
-        shutil.rmtree(_STAGE)
-    os.makedirs(_STAGE)
+    # Best-effort clean; tolerate a locked dir on Windows (e.g. a lingering test server) — we
+    # overwrite in place via dirs_exist_ok rather than requiring the delete to succeed.
+    shutil.rmtree(_STAGE, ignore_errors=True)
+    os.makedirs(_STAGE, exist_ok=True)
     missing = []
     for src_rel, dst_rel in FILES:
         src = os.path.join(_ROOT, src_rel)
@@ -58,7 +59,8 @@ def stage():
             continue
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         if os.path.isdir(src):
-            shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            shutil.copytree(src, dst, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         else:
             shutil.copy2(src, dst)
     # app/ must be an importable package for `from app.app import build_demo`
