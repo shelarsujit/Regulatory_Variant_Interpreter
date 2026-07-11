@@ -1,0 +1,9 @@
+# CPU Hugging Face Space deps. gradio is provided by the Space SDK (see README sdk_version).
+torch>=2.1
+transformers>=4.38,<5    # HyenaDNA remote code; <5 avoids the tie-weights refactor
+huggingface-hub<1.0      # compatible with transformers 4.x
+einops>=0.7              # required by the HyenaDNA modelling code
+pandas>=2.0
+pyarrow>=14.0
+numpy>=1.24
+scipy>=1.11

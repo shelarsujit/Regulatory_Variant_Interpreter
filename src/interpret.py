@@ -58,7 +58,7 @@ def interpret_variant(chrom: str, pos: int, ref: str, alt: str, build: str = "hg
                       model_delta: float | None = None, model_delta_organoid: float | None = None,
                       evidence: list[EvidenceItem] | None = None,
                       evidence_resources: dict | None = None,
-                      calibrator=None, genome=None, motif_library=None,
+                      calibrator=None, meta=None, genome=None, motif_library=None,
                       window_len: int | None = None,
                       provenance: dict | None = None) -> Interpretation:
     """Interpret a single non-coding variant. Returns an auditable `Interpretation`.
@@ -106,8 +106,10 @@ def interpret_variant(chrom: str, pos: int, ref: str, alt: str, build: str = "hg
         except NotImplementedError:
             evidence = []
     evidence = list(evidence)
-    # the organoid model is our cheapest independent second opinion (decision D4)
-    if model_delta_organoid is not None:
+    # the organoid model is our cheapest independent second opinion (decision D4). When the
+    # meta-learner is active it consumes organoid as a FEATURE, so we must not ALSO aggregate it as
+    # evidence (double-counting) — it is either a meta feature OR an evidence item, never both.
+    if model_delta_organoid is not None and meta is None:
         org_dir = _direction(model_delta_organoid)
         concordant = (org_dir == direction) if direction is not Direction.NONE else None
         evidence.append(EvidenceItem(
@@ -116,13 +118,38 @@ def interpret_variant(chrom: str, pos: int, ref: str, alt: str, build: str = "hg
             value=round(model_delta_organoid, 3), direction=org_dir, concordant=concordant))
 
     # --- 5. trust verdict ---------------------------------------------------------------
+    # Optional meta-learner: fuse dna Δ + organoid Δ + motif + (frozen/gtex if present) into the
+    # base confidence, replacing the single-feature isotonic calibrator (docs/07 #2). Opt-in; when
+    # `meta` is None the path below is byte-identical to before.
+    base_confidence = None
+    meta_prov = None
+    if meta is not None:
+        top_motif = max((abs(m.delta_score) for m in mechanisms), default=None)
+        signals = {"dna_lm_delta": model_delta}
+        if model_delta_organoid is not None:
+            signals["organoid_delta"] = model_delta_organoid
+        if top_motif is not None:
+            signals["motif_dscore"] = next(m.delta_score for m in mechanisms
+                                           if abs(m.delta_score) == top_motif)
+        for it in evidence:                    # pull any external numeric signals the meta uses
+            if it.source == "frozen_foundation_model" and isinstance(it.value, (int, float)):
+                signals["frozen_delta"] = float(it.value)
+            elif it.source == "GTEx_eQTL" and isinstance(it.value, (int, float)):
+                signals["gtex_signed"] = float(it.value)
+        base_confidence = meta.transform(signals)
+        meta_prov = {"base_confidence": round(base_confidence, 4),
+                     "top_contributors": [(n, round(c, 3)) for n, c in meta.explain(signals)[:3]]}
+
     report = trust.build_trust_report(model_delta, evidence, calibrator=calibrator,
+                                      base_confidence=base_confidence,
                                       model_uncertainty=model_std)
 
     # --- 6. assemble --------------------------------------------------------------------
     prov = dict(provenance) if provenance else {}
     if predictor is not None and hasattr(predictor, "provenance"):
         prov.setdefault("predictor", predictor.provenance())
+    if meta_prov is not None:
+        prov["meta_learner"] = meta_prov
     if ref_matches is not None:
         prov["genome_ref_match"] = ref_matches
         if not ref_matches:
