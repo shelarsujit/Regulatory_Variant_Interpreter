@@ -11,6 +11,7 @@ Independence ladder (weakest -> strongest independence from our model, decision 
   * frozen_foundation_model — Enformer / AlphaGenome, zero-shot: a different model class
   * held_out_MPRA           — the actual wet-lab measured skew for THIS variant, if tested
   * GTEx_eQTL               — population genetics: is the variant linked to expression IRL?
+  * conservation            — comparative genomics: Zoonomia 241-mammal constraint / HAR (D19)
   * ClinVar                 — has anyone clinically classified it?
   * TSS                     — proximity to a gene start (context, not a direction)
 
@@ -40,6 +41,7 @@ _WEIGHTS = {
     "held_out_MPRA": 2.0,           # a direct wet-lab measurement of THIS variant — strongest
     "frozen_foundation_model": 1.5, # a different model class, zero-shot
     "GTEx_eQTL": 1.2,               # population-genetics link to real expression
+    "conservation": 1.1,            # 241-mammal evolutionary constraint / HAR — different data entirely
     "ClinVar": 1.0,                 # human clinical classification (often direction-less)
     "TSS": 0.3,                     # context only, no direction
 }
@@ -163,6 +165,59 @@ def from_gtex_eqtl(chrom, pos, ref, alt, model_direction, build="hg38", gtex_tab
         weight=_WEIGHTS["GTEx_eQTL"], detail={"gene": gene, "is_eqtl": True})
 
 
+def from_conservation(chrom, pos, model_direction, build="hg38", conservation_table=None,
+                      phylop_thresh: float = 2.0):
+    """Evolutionary constraint at this position — Zoonomia 241-mammal phyloP and/or a Human
+    Accelerated Region (Researcher-track dataset: Pollard-lab Zoonomia constraint scores + HARs).
+
+    Independent of our model in the strongest sense — it is comparative genomics across 241
+    mammals, not any expression assay. A deeply CONSTRAINED position (high phyloP) is under
+    purifying selection, so a base change there is more likely to matter: it CORROBORATES a
+    predicted regulatory effect and CONFLICTS with a predicted-benign call — exactly the
+    directionless-but-not-neutral logic used for the boolean GTEx eQTL. A HAR adds that the
+    locus changed fast specifically in the human lineage (a human-regulatory candidate).
+
+    Expects a table with columns chrom,pos and any of: `phylop`/`phyloP`/`constraint` (signed
+    score) and/or a boolean `in_har`/`har`. Returns None when no table is supplied or the
+    position is neither constrained nor in a HAR (absence != conflict, D13).
+    """
+    df = _as_frame(conservation_table)
+    if df is None or len(df) == 0:
+        return None
+    sub = df[(df["chrom"].astype(str) == str(chrom)) & (df["pos"].astype("int64") == int(pos))]
+    if len(sub) == 0:
+        return None
+    row = sub.iloc[0]
+    phylop_col = next((c for c in ("phylop", "phyloP", "constraint", "phylop241") if c in row), None)
+    phylop = float(row[phylop_col]) if phylop_col is not None and row[phylop_col] == row[phylop_col] else None
+    har_col = next((c for c in ("in_har", "har", "is_har") if c in row), None)
+    in_har = bool(row[har_col]) if har_col is not None else False
+
+    constrained = phylop is not None and phylop >= phylop_thresh
+    if not constrained and not in_har:
+        return None  # neither conserved nor human-accelerated -> no positive signal to report
+
+    bits = []
+    if phylop is not None:
+        bits.append(f"phyloP241={phylop:+.2f}" + (" (constrained)" if constrained else ""))
+    if in_har:
+        bits.append("in a Human Accelerated Region")
+    detail_desc = ", ".join(bits)
+
+    if model_direction is Direction.NONE:
+        concordant, note = False, "but the model predicts no effect"
+    else:
+        concordant, note = True, "corroborates a functional variant"
+    return EvidenceItem(
+        source="conservation",
+        summary=f"evolutionary constraint: {detail_desc} — {note}",
+        value=round(phylop, 3) if phylop is not None else "HAR",
+        direction=None, concordant=concordant,
+        weight=_WEIGHTS["conservation"] * (1.2 if in_har else 1.0),
+        detail={"phylop": phylop, "in_har": in_har, "constrained": constrained},
+    )
+
+
 def from_clinvar(chrom, pos, ref, alt, build="hg38", clinvar_table=None):
     """ClinVar clinical classification. Usually direction-less -> attaches as context."""
     df = _as_frame(clinvar_table)
@@ -262,6 +317,7 @@ def gather_evidence(chrom: str, pos: int, ref: str, alt: str,
                     model_direction: Direction, *, build: str = "hg38",
                     calibration_table: Any = None, gtex_table: Any = None,
                     clinvar_table: Any = None, tss_table: Any = None,
+                    conservation_table: Any = None,
                     foundation_fn: Callable[..., float] | None = None,
                     seq_ref: str | None = None, seq_alt: str | None = None,
                     organoid_predictor=None, organoid_delta: float | None = None,
@@ -278,6 +334,7 @@ def gather_evidence(chrom: str, pos: int, ref: str, alt: str,
         from_held_out_mpra(chrom, pos, ref, alt, model_direction, calibration_table),
         from_frozen_foundation_model(chrom, pos, ref, alt, model_direction, build, foundation_fn),
         from_gtex_eqtl(chrom, pos, ref, alt, model_direction, build, gtex_table),
+        from_conservation(chrom, pos, model_direction, build, conservation_table),
         from_clinvar(chrom, pos, ref, alt, build, clinvar_table),
         from_tss_proximity(chrom, pos, build, tss_table),
     ]

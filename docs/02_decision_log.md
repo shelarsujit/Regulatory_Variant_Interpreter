@@ -385,3 +385,33 @@ Format per entry: **Context → Decision → Why → Rejected alternatives → S
   scores the mean. 6/6 tests pass. Real multi-seed members await a training run (the plumbing is
   proven on 2 quick members). Also this session: **RC test-time averaging (docs/03 §6) and lower
   calibration τ both tried and REJECTED** — negative results, logged, not adopted.
+
+## D19 — Conservation evidence: Zoonomia 241-mammal constraint + HARs as an independent source
+- **Context.** The trust layer (D13) grounds each prediction in signals produced *independently*
+  of our model. Every source so far is an expression assay (MPRA, GTEx eQTL) or a human annotation
+  (ClinVar, TSS). Comparative genomics — is this base under purifying selection across mammals? —
+  is a genuinely *different data modality* and one of the strongest independence signals available.
+  It is also a listed Researcher-track dataset (Pollard-lab Zoonomia constraint + Human Accelerated
+  Regions), so wiring it ties the project to a second track dataset at near-zero cost.
+- **Decision.** Add `from_conservation` (src/evidence.py): given a table with `chrom,pos` and any
+  of `phylop`/`constraint` and/or a boolean `in_har`, emit an EvidenceItem when the position is
+  **constrained** (phyloP241 ≥ 2.0) **or** in a **HAR**. Direction-less but *not neutral* — the
+  same logic as the boolean GTEx eQTL branch: a constrained/human-accelerated base **corroborates**
+  a predicted regulatory effect (concordant) and **conflicts** with a predicted-benign call
+  (`model_direction==NONE` → concordant False, surfaced). Weight 1.1 (above ClinVar, below GTEx),
+  ×1.2 when in a HAR. Absent table or an unconstrained non-HAR position → returns None (absence is
+  never conflict, D13). Threaded through `gather_evidence(conservation_table=…)` and loaded in
+  app.py via `_conservation()` (`RVI_CONSERVATION` env → `data/processed/conservation.parquet`).
+- **Why.** Constraint is independent of every expression-based source we have, so concordance with
+  it is strong corroboration and a conserved-but-model-says-benign case is exactly the kind of
+  honest conflict the trust thesis exists to surface. HARs add a human-lineage regulatory-candidate
+  flag. Cheap, additive, and defensible.
+- **Rejected.** Treating low constraint as evidence *for* benign (too weak / noisy to assert a
+  negative). A signed conservation "direction" (constraint has magnitude, not up/down expression
+  direction) — kept it directionless-but-corroborating. Fetching phyloP live from the UCSC 241-way
+  bigwig at query time (adds pyBigWig + network to the hot path; a pre-joined local table is the
+  offline-first choice per D13). Real Zoonomia table ingest is a documented next step — the code
+  path is wired, tested, and degrades gracefully until the table is dropped in.
+- **Status.** Implemented + tested: `test_conservation_evidence` covers corroborate / benign-conflict
+  / HAR-aware / silent-when-absent / gather_evidence pass-through. 7/7 core tests pass. Data ingest
+  (join phyloP241 + HAR BED onto the 15,273 calibration variants) pending.

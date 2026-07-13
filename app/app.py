@@ -185,6 +185,20 @@ def _gtex():
 
 
 @functools.lru_cache(maxsize=1)
+def _conservation():
+    """Zoonomia 241-mammal constraint / HAR table (RVI_CONSERVATION env, else
+    data/processed/conservation.parquet). None if absent — the evidence source then omits itself."""
+    path = os.environ.get("RVI_CONSERVATION") or os.path.join(_ROOT, "data", "processed", "conservation.parquet")
+    if not os.path.isfile(path):
+        return None
+    try:
+        import pandas as pd
+        return pd.read_parquet(path)
+    except Exception:
+        return None
+
+
+@functools.lru_cache(maxsize=1)
 def _seq_lookup():
     """Map (chrom,pos,ref,alt) -> (seq_ref,seq_alt) from the calibration parquet.
 
@@ -281,7 +295,8 @@ def interpret_coords(chrom, pos, ref, alt):
             chrom, pos, ref, alt, genome=g,
             predictor=_predictor("primary"), organoid_predictor=_predictor("organoid"),
             calibrator=_calibrator(), meta=_meta(),
-            evidence_resources={"gtex_table": _gtex()}, **seq_kwargs)
+            evidence_resources={"gtex_table": _gtex(), "conservation_table": _conservation()},
+            **seq_kwargs)
         return _render(result, _untrained_banner("primary", "organoid"))
     except Exception as e:
         return f"**Error:** {type(e).__name__}: {e}"

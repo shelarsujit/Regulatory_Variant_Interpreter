@@ -148,6 +148,41 @@ def test_interpret_end_to_end_runs():
         print("        · " + line)
 
 
+def test_conservation_evidence():
+    """Zoonomia constraint / HAR source: constrained position corroborates a real effect,
+    conflicts with a predicted-benign call, and stays silent when neither conserved nor HAR."""
+    import pandas as pd
+    from src import evidence
+
+    tbl = pd.DataFrame([
+        {"chrom": "chr1", "pos": 100, "phylop": 4.2, "in_har": False},   # deeply constrained
+        {"chrom": "chr1", "pos": 200, "phylop": 0.1, "in_har": True},    # HAR, not constrained
+        {"chrom": "chr1", "pos": 300, "phylop": 0.1, "in_har": False},   # neither -> no signal
+    ])
+
+    # constrained + a directional model call -> corroborates (concordant True)
+    e_up = evidence.from_conservation("chr1", 100, Direction.UP, conservation_table=tbl)
+    assert e_up is not None and e_up.source == "conservation" and e_up.concordant is True
+
+    # constrained + model predicts NOTHING -> a surfaced conflict (concordant False)
+    e_none = evidence.from_conservation("chr1", 100, Direction.NONE, conservation_table=tbl)
+    assert e_none is not None and e_none.concordant is False
+
+    # HAR flag reported and up-weighted vs a plain constrained hit
+    e_har = evidence.from_conservation("chr1", 200, Direction.DOWN, conservation_table=tbl)
+    assert e_har is not None and e_har.detail["in_har"] and "Human Accelerated" in e_har.summary
+
+    # neither constrained nor HAR -> omitted entirely (absence != conflict)
+    assert evidence.from_conservation("chr1", 300, Direction.UP, conservation_table=tbl) is None
+    # absent table -> None, never an error
+    assert evidence.from_conservation("chr1", 100, Direction.UP, conservation_table=None) is None
+
+    # flows through the orchestrator's gather_evidence via conservation_table kwarg
+    items = evidence.gather_evidence("chr1", 100, "A", "G", Direction.UP, conservation_table=tbl)
+    assert any(it.source == "conservation" and it.concordant is True for it in items)
+    print("  ok: conservation evidence — corroborates, conflicts on benign, HAR-aware, silent when absent")
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     print(f"running {len(tests)} tests\n" + "-" * 60)
