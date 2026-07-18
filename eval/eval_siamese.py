@@ -86,6 +86,92 @@ def _metrics(name, delta, skew, emvar_loose, emvar_strict):
     return row
 
 
+# metric names computed per bootstrap resample; keep in sync with _metric_vec below.
+_BOOT_METRICS = ("pearson", "spearman", "emvar_auc_loose", "emvar_auc_strict")
+
+
+def _metric_vec(delta, skew, emvar_loose, emvar_strict, idx):
+    """Raw (unrounded) metrics for a delta array on the resampled indices `idx`.
+    Returns a dict metric-name -> float (nan where undefined, e.g. AUC with no positives)."""
+    import numpy as np
+    d = np.asarray(delta, float)[idx]
+    ad = np.abs(d)
+    sk = np.asarray(skew, float)[idx]
+    lo = np.asarray(emvar_loose)[idx]
+    out = {
+        "pearson": _pearson(d, sk),
+        "spearman": _spearman(d, sk),
+        "emvar_auc_loose": _auc(ad, lo),
+    }
+    if emvar_strict is not None:
+        out["emvar_auc_strict"] = _auc(ad, np.asarray(emvar_strict)[idx])
+    return out
+
+
+def _ci(samples, lo=2.5, hi=97.5):
+    """Percentile CI over a 1-D list of bootstrap replicates, ignoring nan (undefined resamples)."""
+    import numpy as np
+    a = np.asarray(samples, float)
+    a = a[~np.isnan(a)]
+    if a.size == 0:
+        return None
+    return [round(float(np.percentile(a, lo)), 4), round(float(np.percentile(a, hi)), 4)]
+
+
+def _bootstrap(deltas_by_model, skew, emvar_loose, emvar_strict, n_boot, seed):
+    """Paired percentile bootstrap over the eval slice.
+
+    Resamples variant indices WITH REPLACEMENT and applies the SAME indices to every model, so the
+    per-metric CIs and — crucially — the siamese−activity paired-difference CI share resamples and the
+    difference test is valid (the two models see identical resampled variants each replicate).
+
+    Returns {"per_model": {name: {metric: {ci, ...}}}, "paired": {metric: {diff_ci, p_one_sided, ...}}}.
+    The one-sided bootstrap p-value = fraction of replicates where (siamese−activity) <= 0, i.e. the
+    probability the observed siamese>activity gain is not reproduced under resampling. Paired block is
+    emitted only when both a 'siamese' and an 'activity[...]' model are present.
+    """
+    import numpy as np
+    n = len(skew)
+    rng = np.random.default_rng(seed)
+    names = list(deltas_by_model)
+    metrics = [m for m in _BOOT_METRICS if m != "emvar_auc_strict" or emvar_strict is not None]
+
+    reps = {name: {m: [] for m in metrics} for name in names}
+    sia_name = next((k for k in names if k == "siamese"), None)
+    act_name = next((k for k in names if k.startswith("activity")), None)
+    paired = sia_name is not None and act_name is not None
+    diff_reps = {m: [] for m in metrics} if paired else None
+
+    for _ in range(n_boot):
+        idx = rng.integers(0, n, n)  # one resample shared across all models (paired)
+        per = {name: _metric_vec(deltas_by_model[name], skew, emvar_loose, emvar_strict, idx)
+               for name in names}
+        for name in names:
+            for m in metrics:
+                reps[name][m].append(per[name][m])
+        if paired:
+            for m in metrics:
+                diff_reps[m].append(per[sia_name][m] - per[act_name][m])
+
+    per_model = {name: {m: {"ci95": _ci(reps[name][m])} for m in metrics} for name in names}
+    result = {"n_boot": int(n_boot), "seed": int(seed), "per_model": per_model}
+    if paired:
+        pd_block = {}
+        for m in metrics:
+            arr = np.asarray(diff_reps[m], float)
+            arr = arr[~np.isnan(arr)]
+            if arr.size == 0:
+                pd_block[m] = {"diff_ci95": None, "p_one_sided": None, "n_valid": 0}
+                continue
+            p = float((arr <= 0).mean())  # H0: siamese <= activity
+            pd_block[m] = {"diff_median": round(float(np.median(arr)), 4),
+                           "diff_ci95": _ci(diff_reps[m]),
+                           "p_one_sided": round(p, 4),
+                           "n_valid": int(arr.size)}
+        result["paired"] = {"siamese_minus": act_name, "by_metric": pd_block}
+    return result
+
+
 def main(argv=None):
     import numpy as np
     import pandas as pd
@@ -113,6 +199,10 @@ def main(argv=None):
                     help="save per-variant siamese Δ (+ skew/emVar labels) to this parquet/csv so the "
                          "calibrator can be REFIT offline on CPU later — GPU is then needed only once")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--bootstrap", type=int, default=0,
+                    help="N paired bootstrap resamples of the eval slice -> 95%% CIs per metric and a "
+                         "CI + one-sided p-value on the siamese−activity difference (0 = off; 1000 for the paper)")
+    ap.add_argument("--seed", type=int, default=0, help="RNG seed for --bootstrap (reproducible CIs)")
     args = ap.parse_args(argv)
 
     if not (args.siamese_weights or args.activity_weights):
@@ -136,12 +226,14 @@ def main(argv=None):
 
     rows = []
     siamese_delta = None
+    deltas_by_model = {}  # model-name -> per-variant Δ, shared across metrics + the paired bootstrap
 
     if args.siamese_weights:
         from src.siamese_predictor import SiameseVariantScorer
         s = SiameseVariantScorer(args.siamese_weights, device=args.device,
                                  batch_size=args.batch_size).load()
         siamese_delta = np.array(s.score_variants_batch(refs, alts))
+        deltas_by_model["siamese"] = siamese_delta
         rows.append(_metrics("siamese", siamese_delta, skew, emvar_loose, emvar_strict))
         print(f"[eval] siamese scored (backbone={s.backbone_type})")
 
@@ -152,6 +244,7 @@ def main(argv=None):
         if not p.is_finetuned:
             print("[eval] ⚠️ activity predictor is NOT fine-tuned — baseline will be noise.")
         d = np.array(p.score_variants_batch(refs, alts))
+        deltas_by_model[f"activity[{args.activity_context}]"] = d
         rows.append(_metrics(f"activity[{args.activity_context}]", d, skew, emvar_loose, emvar_strict))
         print("[eval] activity baseline scored (subtract-endpoints Δ)")
 
@@ -172,6 +265,26 @@ def main(argv=None):
             verdict = "SIAMESE WINS" if sia > act else ("TIE" if sia == act else "baseline wins")
             print(f"\n  gate ({key}): siamese {sia} vs activity {act} -> {verdict}")
     print("────────────────────────────────────────────────────────────────")
+
+    # paired percentile bootstrap -> 95% CIs + a significance test on the siamese−activity gain.
+    # This is the rigor the preprint headline (Δ-Pearson 0.19->0.28) needs: a point estimate alone
+    # is a reviewer kill (docs/10_preprint_draft.md §Limitations #2).
+    boot = None
+    if args.bootstrap > 0:
+        boot = _bootstrap(deltas_by_model, skew, emvar_loose, emvar_strict, args.bootstrap, args.seed)
+        print(f"\n── paired bootstrap ({args.bootstrap} resamples, seed {args.seed}) ─────────────")
+        for name, mm in boot["per_model"].items():
+            cis = ", ".join(f"{m}={mm[m]['ci95']}" for m in mm)
+            print(f"  {name}: {cis}")
+        if "paired" in boot:
+            print(f"  Δ (siamese − {boot['paired']['siamese_minus']}), 95% CI [p one-sided]:")
+            for m, b in boot["paired"]["by_metric"].items():
+                if b["diff_ci95"] is None:
+                    print(f"    {m}: undefined (no valid resamples)")
+                    continue
+                sig = "*" if (b["p_one_sided"] is not None and b["p_one_sided"] < 0.05) else " "
+                print(f"    {m}: {b['diff_ci95']}  p={b['p_one_sided']} {sig}")
+        print("────────────────────────────────────────────────────────────────")
 
     # dump per-variant siamese Δ so the calibrator can be refit OFFLINE (CPU) later — GPU once.
     if args.dump_predictions and siamese_delta is not None:
@@ -204,7 +317,8 @@ def main(argv=None):
            "loose_emvars": int(emvar_loose.sum()),
            "strict_emvars": int(emvar_strict.sum()) if emvar_strict is not None else None,
            "calibrator_out": calibrator_out,
-           "results": rows}
+           "results": rows,
+           "bootstrap": boot}
     os.makedirs(os.path.dirname(args.results_out), exist_ok=True)
     with open(args.results_out, "w") as f:
         json.dump(out, f, indent=2)
